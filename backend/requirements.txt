@@ -1,0 +1,23 @@
+# Core do FastAPI
+fastapi[all]
+uvicorn[standard]
+pydantic[email]
+python-dotenv
+
+# Banco de Dados (PostgreSQL)
+SQLAlchemy==2.0.25 # Versão estável com compatibilidade Python 3.11
+psycopg2-binary # Driver para PostgreSQL
+alembic # Se estiver usando para migrações (muito recomendado para multi-tenancy)
+
+# Segurança e Autenticação
+python-jose[cryptography] # JWT - JSON Web Tokens
+passlib[bcrypt] # Hash de senha
+bcrypt
+
+# Manipulação de Imagens e Arquivos
+python-multipart # Para upload de arquivos (necessário em admin_upload.py e company.py)
+pillow # Se precisar processar imagens (opcional, mas comum)
+
+# Utilidades
+tenacity # Para tentar reconectar o DB (útil no startup.py)
+httpx # Para requisições HTTP (se seu backend faz requisições externas)
