@@ -2,18 +2,38 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from fastapi import HTTPException, status
 from app.db.connection import engine
-from app.db.models.tenant import Tenant
+# Importa o modelo central (Tenant) e todos os modelos TAF
+from app.db.models.tenant import (
+    Tenant, 
+    Event, 
+    Exercise, 
+    PassCriteria, 
+    Candidate, 
+    ExecutionResult
+)
 from app.schemas.tenant_schema import TenantCreate
 from app.db.models.base import Base
 
+# Modelos de usuário/papel que são fundamentais
 from app.db.models.user_tenant import UserTenant
-from app.db.models.item_tenant import ItemTenant
+from app.db.models.role_tenant import RoleTenant 
+
+# AVISO: ItemTenant e AcessorioTenant removidos desta lista por solicitação do usuário.
 
 from app.db.startup import insert_default_roles_tenant  # critical PATCH!
 
+# LISTA CORRIGIDA E COMPLETA: SOMENTE os modelos necessários para o TAF
 TENANT_SPECIFIC_MODELS = [
+    # Modelos de Acesso e Infra que são necessários para o sistema (User/Role)
     UserTenant, 
-    ItemTenant
+    RoleTenant,    
+    
+    # Modelos do TAF (Agora incluídos para criação)
+    Event,
+    Exercise,
+    PassCriteria,
+    Candidate,
+    ExecutionResult,
 ]
 
 class CRUDTenant:
@@ -53,13 +73,14 @@ class CRUDTenant:
             with engine.connect() as connection:
                 tables_to_create = []
                 for model in TENANT_SPECIFIC_MODELS:
+                    # O loop agora usa a lista COMPLETA de modelos TAF + User/Role
                     table_obj = model.__table__.to_metadata(Base.metadata)
                     table_obj.schema = schema_name
                     tables_to_create.append(table_obj)
 
                 Base.metadata.create_all(connection, tables=tables_to_create, checkfirst=True)
-                connection.commit()
-            
+                # connection.commit() # Não é estritamente necessário em create_all
+
             print(f"Tabelas específicas do Tenant criadas no schema {schema_name}.")
 
             # PATCH: Garante papéis padrão no schema do tenant!
