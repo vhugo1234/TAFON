@@ -42,7 +42,8 @@ def _safe_set_search_path(db: Session, schema_name: str):
     db.execute(text(f'SET search_path TO "{schema_name}", public'))
 
 
-@router.post("/auth/token", response_model=Token)
+# CORREÇÃO: registrar as rotas como "/token" e "/login" (o router é incluído com prefix "/auth")
+@router.post("/token", response_model=Token)
 @router.post("/login", response_model=Token)  # mantém compatibilidade com /login
 async def login_for_access_token(request: Request, db: Session = Depends(get_db)):
     content_type = request.headers.get("content-type", "")
