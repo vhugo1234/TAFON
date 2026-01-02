@@ -1,7 +1,7 @@
 # Core do FastAPI
 fastapi[all]
 uvicorn[standard]
-pydantic<2[email]
+pydantic[email]>=1.10.12,<2
 python-dotenv
 
 # Banco de Dados (PostgreSQL)
