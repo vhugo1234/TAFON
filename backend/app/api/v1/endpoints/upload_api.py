@@ -19,7 +19,7 @@ except ImportError:
     current_user_dependency = None
 
 
-@router.post("/upload-image")
+@router.post("/")
 async def upload_image(
     file: UploadFile = File(...),
     current_user: Dict = current_user_dependency if current_user_dependency else None

@@ -25,6 +25,13 @@ api_router.include_router(candidates.router, prefix="/taf/candidates", tags=["TA
 api_router.include_router(execution.router, prefix="/taf/execution", tags=["TAF - Módulo 4: Execução"])
 api_router.include_router(results.router, prefix="/taf/results", tags=["TAF - Módulo 5: Resultados"])
 api_router.include_router(tenant_auth.router, prefix="/tenants", tags=["Tenant Auth"])
-api_router.include_router(upload_api.router, prefix="/upload-image", tags=["Upload de Imagens"])  # <-- Adicione esta linha!
+api_router.include_router(upload_api.router, prefix="/upload", tags=["Upload de Imagens"])
 api_router.include_router(tenant_public_register_router)
-api_router.include_router(password_reset.router)  # Roteador de redefinição de senha
+api_router.include_router(password_reset.router, prefix="/password-reset", tags=["Password Reset"])
+
+# TEMPORARY SHIM: Include placeholder routers for legacy endpoints
+# These can be removed once the actual implementations are ready
+api_router.include_router(items.router, prefix="/items", tags=["Items (Legacy)"])
+api_router.include_router(asset.router, prefix="/asset", tags=["Asset (Legacy)"])
+api_router.include_router(acessorios.router, prefix="/acessorios", tags=["Acessorios (Legacy)"])
+api_router.include_router(emprestimos.router, prefix="/emprestimos", tags=["Emprestimos (Legacy)"])

@@ -18,7 +18,7 @@ class PasswordResetConfirm(BaseModel):
     new_password: str
 
 
-@router.post("/password-reset/request")
+@router.post("/request")
 async def request_password_reset(request: PasswordResetRequest):
     """
     Request a password reset (sends email with token).
@@ -32,7 +32,7 @@ async def request_password_reset(request: PasswordResetRequest):
     }
 
 
-@router.post("/password-reset/confirm")
+@router.post("/confirm")
 async def confirm_password_reset(reset: PasswordResetConfirm):
     """
     Confirm password reset with token and new password.

@@ -143,6 +143,20 @@ class RoleTenant(TenantBase):
     descricao = Column(String(255), nullable=True)
     pass
 
+# TEMPORARY PLACEHOLDER: ItemTenant to avoid relationship errors
+class ItemTenant(TenantBase):
+    """
+    TEMPORARY PLACEHOLDER for ItemTenant model.
+    TODO: Implement actual ItemTenant model.
+    """
+    __tablename__ = "itens_tenant"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("user_tenant.id"), nullable=True)
+    nome = Column(String(255), nullable=True)
+    
+    usuario = relationship("UserTenant", back_populates="itens")
+
 # TEMPORARY FIX: Add compatibility exports for models that may be imported from public
 try:
     from app.db.models.public import Tenant, UserCentral

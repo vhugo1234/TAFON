@@ -20,7 +20,7 @@ if router is None:
     print("[results.py] No real implementation found, using placeholder router")
     router = APIRouter()
     
-    @router.get("/taf/results/_placeholder")
+    @router.get("/_placeholder")
     async def placeholder_results():
         """
         TEMPORARY PLACEHOLDER: Returns stub response.
