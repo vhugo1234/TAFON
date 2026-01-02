@@ -3,12 +3,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.db.connection import get_db
-from app.db.models.tenant import UserCentral
+# TEMPORARY FIX: Explicit imports from specific model modules to avoid ambiguity
+from app.db.models.public import UserCentral, Tenant
 from app.db.models.tenant import UserTenant
 from app.core.security import create_access_token, verify_password
 from app.core.config import settings
 from datetime import timedelta
 import json
+import re
 
 router = APIRouter()
 
@@ -29,6 +31,16 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+
+def validate_schema_name(schema_name: str) -> bool:
+    """
+    SECURITY: Validate schema name to prevent SQL injection.
+    Only allow alphanumeric characters, underscores, and hyphens.
+    """
+    return bool(re.match(r'^[a-zA-Z0-9_-]+$', schema_name))
+
+
+@router.post("/token", response_model=Token)
 @router.post("/login", response_model=Token)
 async def login_for_access_token(request: Request, db: Session = Depends(get_db)):
     content_type = request.headers.get("content-type", "")
@@ -116,8 +128,14 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
     ]
     for schema_name in schemas:
         try:
+            # SECURITY: Validate schema name before using in SQL
+            if not validate_schema_name(schema_name):
+                print(f"[SECURITY] Invalid schema name skipped: {schema_name}")
+                continue
+            
             print(f"Tentando login no schema: {schema_name}")
-            db.execute(text(f"SET search_path TO {schema_name}"))
+            # SECURITY: Use validated schema name with text() to prevent SQL injection
+            db.execute(text(f'SET search_path TO "{schema_name}"'))
             user_tenant = db.query(UserTenant).filter(UserTenant.email == username).first()
             if user_tenant:
                 print(f">>> Encontrado usuário em {schema_name}: {user_tenant.email} (admin? {user_tenant.is_admin})")
@@ -171,6 +189,8 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
         except Exception as e:
             db.rollback()
             print(f"[ERRO ao logar no schema {schema_name}] {e}")
+            # Restore search_path on error
+            db.execute(text("SET search_path TO public"))
             pass
     db.execute(text("SET search_path TO public"))
 

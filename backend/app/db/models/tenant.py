@@ -4,13 +4,18 @@ from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import JSONB
+import enum
 
 # Base para todos os modelos que pertencerão ao schema do Tenant
 TenantBase = declarative_base() 
 
-class UserRole(str, SQLEnum):
+class UserRoleEnum(str, enum.Enum):
+    """Enum for user roles in tenant schema"""
     ADMIN = "admin"
     USER = "user"
+    
+# Keep old name for compatibility
+UserRole = UserRoleEnum
     
 # ----------------------------------------------------
 # MÓDULO 1: EVENTOS (O TAF)
@@ -114,7 +119,7 @@ class UserTenant(TenantBase):
     address = Column(String(255), nullable=True)
     specialty = Column(String(128), nullable=True)
     avatar_url = Column(String(255), nullable=True)
-    role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.USER)
+    role = Column(SQLEnum(UserRoleEnum), nullable=False, default=UserRoleEnum.USER)
     role_id = Column(Integer, ForeignKey("roles_tenant.id"))
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     accepted_terms = Column(Boolean, default=False)
@@ -125,11 +130,26 @@ class UserTenant(TenantBase):
     role_obj = relationship("RoleTenant")
     itens = relationship("ItemTenant", back_populates="usuario", cascade="all, delete-orphan")
     pass
-# Requerido pelo módulo de usuários
-class UserRole(TenantBase):
+
+# Role/Permission model for tenants
+class RoleTenant(TenantBase):
+    """
+    Roles and permissions for tenant users.
+    """
     __tablename__ = "roles_tenant"
    
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String(100), nullable=False, unique=True)
     descricao = Column(String(255), nullable=True)
     pass
+
+# TEMPORARY FIX: Add compatibility exports for models that may be imported from public
+try:
+    from app.db.models.public import Tenant, UserCentral
+    # Add to globals so they can be imported from this module
+    globals()['Tenant'] = Tenant
+    globals()['UserCentral'] = UserCentral
+except ImportError:
+    # If public models don't exist yet, set to None
+    Tenant = None
+    UserCentral = None

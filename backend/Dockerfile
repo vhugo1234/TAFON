@@ -35,6 +35,13 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 # Copia o restante do código da aplicação
 COPY . /app 
 
+# TEMPORARY FIX: Create static directories and set ownership to avoid permission issues
+RUN mkdir -p /app/static/imagens /app/static/logos /app/uploads \
+    && useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
 EXPOSE 8000
 
 # O comando será executado pelo docker-compose.yml (com `python -m alembic`)

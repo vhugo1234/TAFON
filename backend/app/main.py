@@ -1,5 +1,6 @@
 # app/main.py
 import os
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -42,6 +43,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure static and uploads directories exist before mounting
+# TEMPORARY FIX: Create directories if they don't exist to avoid startup errors
+Path("static/logos").mkdir(parents=True, exist_ok=True)
+Path("static/imagens").mkdir(parents=True, exist_ok=True)
+Path("uploads").mkdir(parents=True, exist_ok=True)
 
 # Static mounts
 app.mount("/static/logos", StaticFiles(directory="static/logos"), name="logos")

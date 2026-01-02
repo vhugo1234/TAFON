@@ -3,6 +3,10 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
 from datetime import datetime
+import pydantic
+
+# Pydantic v1/v2 compatibility
+PYDANTIC_V2 = int(pydantic.__version__.split('.')[0]) >= 2
 
 # ----------------------------------------------------
 # PassCriteria (Critérios Mínimos de Aprovação)
@@ -20,8 +24,11 @@ class PassCriteriaOut(PassCriteriaBase):
     id: int
     exercise_id: int # Para contexto, embora não seja essencial na criação
 
-    class Config:
-        from_attributes = True
+    if PYDANTIC_V2:
+        model_config = {'from_attributes': True}
+    else:
+        class Config:
+            from_attributes = True
 
 # ----------------------------------------------------
 # Exercise (A Prova em si)
@@ -39,10 +46,24 @@ class ExerciseBase(BaseModel):
 class ExerciseCreate(ExerciseBase):
     pass
 
+class ExerciseUpdate(BaseModel):
+    """
+    Schema for updating an exercise.
+    All fields are optional.
+    """
+    event_id: Optional[int] = Field(None, description="ID do Evento TAF")
+    name: Optional[str] = Field(None, max_length=128, description="Nome do exercício")
+    unit_of_measure: Optional[str] = Field(None, max_length=50, description="Unidade")
+    max_attempts: Optional[int] = Field(None, description="Número máximo de tentativas")
+    criteria: Optional[List[PassCriteriaCreate]] = Field(None, description="Lista de critérios de aprovação")
+
 class ExerciseOut(ExerciseBase):
     id: int
     criteria: List[PassCriteriaOut] # Retorna a lista com IDs
     created_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    if PYDANTIC_V2:
+        model_config = {'from_attributes': True}
+    else:
+        class Config:
+            from_attributes = True
