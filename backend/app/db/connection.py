@@ -1,13 +1,19 @@
 from typing import Generator
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
 import os
 
 # Exemplo: ler URL do env (recomenda-se usar var de ambiente)
-DATABASE_URL = os.getenv("DATABASE_URL", os.getenv("SQLALCHEMY_DATABASE_URI", "postgresql://tafon_user:tafon123456@db:5432/tafon_central_db"))
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    os.getenv("SQLALCHEMY_DATABASE_URI", "postgresql://tafon_user:tafon123456@db:5432/tafon_central_db")
+)
 
 engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+
+# Expor Base para uso em scripts que precisam criar tabelas (Base.metadata.create_all)
+Base = declarative_base()
 
 def get_db() -> Generator[Session, None, None]:
     """
