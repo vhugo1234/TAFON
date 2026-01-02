@@ -1,11 +1,8 @@
 # Core do FastAPI
 fastapi[all]
 uvicorn[standard]
-pydantic[email]
+pydantic<2[email]
 python-dotenv
-
-# Pydantic v2 compat (BaseSettings foi movido)
-pydantic-settings
 
 # Banco de Dados (PostgreSQL)
 SQLAlchemy==2.0.25
@@ -15,8 +12,6 @@ alembic
 # Segurança e Autenticação
 python-jose[cryptography]
 passlib[bcrypt]
-# bcrypt explicitamente não é estritamente necessário se usar passlib[bcrypt],
-# mas pode ficar caso instale independentemente em alguns ambientes
 bcrypt
 
 # Uploads / Form parsing / Imagens
