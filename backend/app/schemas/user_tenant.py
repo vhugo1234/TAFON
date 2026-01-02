@@ -1,5 +1,9 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+import pydantic
+
+# Detecta se estamos usando Pydantic v2
+_PYDANTIC_V2 = int(pydantic.__version__.split(".")[0]) >= 2
 
 class UserTenantBase(BaseModel):
     nome: str
@@ -41,19 +45,37 @@ class UserTenantUpdate(BaseModel):
     accepted_terms: Optional[bool]
     is_admin: Optional[bool]
 
-class UserTenantOut(UserTenantBase):
-    id: int
-    username: Optional[str]
-    cpf: Optional[str]
-    phone: Optional[str]
-    department: Optional[str]
-    institution: Optional[str]
-    birth_date: Optional[str]
-    notes: Optional[str]
-    address: Optional[str]
-    avatar_url: Optional[str]
-    specialty: Optional[str]
-    accepted_terms: Optional[bool]
-    is_admin: Optional[bool]
-    class Config:
-        orm_mode = True
+# Saída compatível com pydantic v1 e v2
+if _PYDANTIC_V2:
+    class UserTenantOut(UserTenantBase):
+        id: int
+        username: Optional[str]
+        cpf: Optional[str]
+        phone: Optional[str]
+        department: Optional[str]
+        institution: Optional[str]
+        birth_date: Optional[str]
+        notes: Optional[str]
+        address: Optional[str]
+        avatar_url: Optional[str]
+        specialty: Optional[str]
+        accepted_terms: Optional[bool]
+        is_admin: Optional[bool]
+        model_config = {"from_attributes": True}
+else:
+    class UserTenantOut(UserTenantBase):
+        id: int
+        username: Optional[str]
+        cpf: Optional[str]
+        phone: Optional[str]
+        department: Optional[str]
+        institution: Optional[str]
+        birth_date: Optional[str]
+        notes: Optional[str]
+        address: Optional[str]
+        avatar_url: Optional[str]
+        specialty: Optional[str]
+        accepted_terms: Optional[bool]
+        is_admin: Optional[bool]
+        class Config:
+            orm_mode = True
