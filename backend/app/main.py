@@ -1,5 +1,6 @@
 # app/main.py
 import os
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,9 +20,14 @@ app = FastAPI(
 def on_startup():
     try:
         sync_sequences()
-        settings.show_config()
     except Exception as e:
         print(f"⚠️  Aviso: não foi possível sincronizar as sequências — {e}")
+    # chamar show_config se existir (opcional)
+    try:
+        if hasattr(settings, "show_config"):
+            settings.show_config()
+    except Exception as e:
+        print(f"⚠️  Aviso ao mostrar configurações: {e}")
 
 
 # Build origins list from env var ALLOWED_ORIGINS (comma separated).
@@ -42,6 +48,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure static / uploads directories exist before mounting (prevents runtime error)
+Path("static/logos").mkdir(parents=True, exist_ok=True)
+Path("static/imagens").mkdir(parents=True, exist_ok=True)
+Path("uploads").mkdir(parents=True, exist_ok=True)
 
 # Static mounts
 app.mount("/static/logos", StaticFiles(directory="static/logos"), name="logos")

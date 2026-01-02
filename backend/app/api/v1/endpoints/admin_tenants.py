@@ -12,11 +12,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.db.connection import get_db, engine
-from app.db.models.tenant import Tenant
+from app.db.models.public import Tenant
 from app.api.deps_admin import get_current_admin_superuser  # <--- CORRIGIDO!
 from app.core.security import get_password_hash
 from app.schemas.tenant_schema import TenantCreate, TenantUpdate, TenantOut, TenantStatus, TenantType
-from app.db.models.tenant import UserTenant, UserRole
+from app.db.models.tenant import UserTenant, UserRoleEnum
 from app.db.startup import initialize_tenant_schema
 
 logger = logging.getLogger("app.routers.admin")
@@ -190,7 +190,7 @@ def create_tenant(tenant_in: TenantCreate, db: Session = Depends(get_db)):
                 nome=tenant_in.responsible_name or "Admin",
                 email=tenant_in.responsible_email,
                 hashed_password=hashed_password,
-                role=UserRole.ADMIN,
+                role=UserRoleEnum.ADMIN,
                 is_admin=True,
                 is_active=True,
             )

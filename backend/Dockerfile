@@ -1,22 +1,22 @@
-# backend/Dockerfile
-
 # ----------------------------------------------------
-# STAGE 1: BUILD (Instalação de dependências e compilação)
+# STAGE 1: BUILD (Instalação de dependências)
 # ----------------------------------------------------
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 WORKDIR /app
 
-# Instala ferramentas de build e libpq-dev para compilar o driver de banco de dados
+# Instala ferramentas de build e libpq-dev para compilar pacotes nativos
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copia requirements e instala as dependências
+# Copia requirements e instala dependências em /install (prefix),
+# assim evitamos copiar /usr/local/bin do builder diretamente.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip
+RUN python -m pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ----------------------------------------------------
-# STAGE 2: FINAL (Imagem de produção mais limpa e menor)
+# STAGE 2: RUNTIME (imagem final mais limpa)
 # ----------------------------------------------------
 FROM python:3.11-slim
 WORKDIR /app
@@ -24,18 +24,25 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Instala apenas as bibliotecas de runtime
+# Instala apenas pacotes runtime necessários
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client curl \
     && rm -rf /var/lib/apt/lists/*
 
-# COPIA AS DEPENDÊNCIAS INSTALADAS (INCLUINDO ALEMBIC)
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# Copia as dependências instaladas pelo builder para /usr/local
+COPY --from=builder /install /usr/local
 
-# Copia o restante do código da aplicação
-COPY . /app 
+# Cria um usuário não-root para rodar a aplicação e os diretórios esperados
+RUN useradd --create-home appuser \
+    && mkdir -p /app/uploads /app/static /app/static/imagens /app/static/logos /app/logs \
+    && chown -R appuser:appuser /app /app/uploads /app/static /app/logs
+
+# Copia o código da aplicação definindo propriedade para appuser
+COPY --chown=appuser:appuser . /app
+
+USER appuser
 
 EXPOSE 8000
 
-# O comando será executado pelo docker-compose.yml (com `python -m alembic`)
+# Comando padrão — docker-compose pode sobrescrever para rodar migrações antes
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

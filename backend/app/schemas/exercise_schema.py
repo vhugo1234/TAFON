@@ -1,48 +1,59 @@
-# backend/app/schemas/exercise_schema.py
+from typing import Optional, List
+from pydantic import BaseModel
+import pydantic
 
-from pydantic import BaseModel, Field
-from typing import Optional, List, Literal
-from datetime import datetime
+# Detecta Pydantic v2
+_PYDANTIC_V2 = int(pydantic.__version__.split(".")[0]) >= 2
 
-# ----------------------------------------------------
-# PassCriteria (Critérios Mínimos de Aprovação)
-# ----------------------------------------------------
-
+# -------------------------
+# PassCriteria schemas
+# -------------------------
 class PassCriteriaBase(BaseModel):
-    gender: Literal['M', 'F'] = Field(..., description="Gênero: 'M' ou 'F'")
-    min_value: float = Field(..., description="Valor mínimo exigido (repetições, metros, etc.)")
-    max_time_s: Optional[int] = Field(None, description="Tempo máximo permitido em segundos (para corridas)")
+    descricao: Optional[str] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    unidade: Optional[str] = None
 
 class PassCriteriaCreate(PassCriteriaBase):
     pass
 
-class PassCriteriaOut(PassCriteriaBase):
-    id: int
-    exercise_id: int # Para contexto, embora não seja essencial na criação
+if _PYDANTIC_V2:
+    class PassCriteriaOut(PassCriteriaBase):
+        id: int
+        model_config = {"from_attributes": True}
+else:
+    class PassCriteriaOut(PassCriteriaBase):
+        id: int
+        class Config:
+            orm_mode = True
 
-    class Config:
-        from_attributes = True
-
-# ----------------------------------------------------
-# Exercise (A Prova em si)
-# ----------------------------------------------------
-
+# -------------------------
+# Exercise schemas
+# -------------------------
 class ExerciseBase(BaseModel):
-    event_id: int = Field(..., description="ID do Evento TAF ao qual o exercício pertence")
-    name: str = Field(..., max_length=128, description="Nome do exercício (Ex: Corrida 2400m)")
-    unit_of_measure: str = Field(..., max_length=50, description="Unidade (Ex: Repetições, Tempo (s), Metros)")
-    max_attempts: int = Field(default=1, description="Número máximo de tentativas")
-    
-    # Lista aninhada para regras (o core deste módulo)
-    criteria: List[PassCriteriaCreate] = Field(..., description="Lista de critérios de aprovação por gênero")
+    nome: str
+    descricao: Optional[str] = None
+    unidade: Optional[str] = None  # ex: "segundos", "repetições", "metros"
+    pontuacao_maxima: Optional[float] = None
+    # se houver critérios embutidos
+    criterios: Optional[List[PassCriteriaOut]] = None
 
 class ExerciseCreate(ExerciseBase):
     pass
 
-class ExerciseOut(ExerciseBase):
-    id: int
-    criteria: List[PassCriteriaOut] # Retorna a lista com IDs
-    created_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
+class ExerciseUpdate(BaseModel):
+    nome: Optional[str] = None
+    descricao: Optional[str] = None
+    unidade: Optional[str] = None
+    pontuacao_maxima: Optional[float] = None
+    criterios: Optional[List[PassCriteriaOut]] = None
+
+if _PYDANTIC_V2:
+    class ExerciseOut(ExerciseBase):
+        id: int
+        model_config = {"from_attributes": True}
+else:
+    class ExerciseOut(ExerciseBase):
+        id: int
+        class Config:
+            orm_mode = True
