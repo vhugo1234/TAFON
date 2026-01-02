@@ -1,24 +1,24 @@
-# Core do FastAPI (versões fixas para resolução rápida)
-fastapi==0.95.2
-uvicorn==0.22.0
-pydantic>=1.10.12,<2
+# Core do FastAPI
+fastapi[all]
+uvicorn[standard]
+pydantic[email]>=2.0.0,<3
+pydantic-settings
 python-dotenv
-email-validator==1.3.1
 
 # Banco de Dados (PostgreSQL)
 SQLAlchemy==2.0.25
-psycopg2-binary==2.9.11
-alembic==1.11.1
+psycopg2-binary
+alembic
 
 # Segurança e Autenticação
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
 
 # Uploads / Form parsing / Imagens
-python-multipart==0.0.6
-pillow==10.0.1
+python-multipart
+pillow
 
 # Utilidades
-tenacity==8.2.2
-httpx==0.24.0
+tenacity
+httpx
