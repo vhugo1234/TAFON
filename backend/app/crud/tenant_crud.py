@@ -2,33 +2,26 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from fastapi import HTTPException, status
 from app.db.connection import engine
-# Importa o modelo central (Tenant) e todos os modelos TAF
+# Tenant (registro central) deve vir do módulo 'public'
+from app.db.models.public import Tenant
+# Modelos tenant-specific e TenantBase do módulo tenant
 from app.db.models.tenant import (
-    Tenant, 
-    Event, 
-    Exercise, 
-    PassCriteria, 
-    Candidate, 
-    ExecutionResult
+    TenantBase,
+    Event,
+    Exercise,
+    PassCriteria,
+    Candidate,
+    ExecutionResult,
+    UserTenant,
 )
+from app.db.models.role_tenant import RoleTenant
 from app.schemas.tenant_schema import TenantCreate
-from app.db.models.base import Base
+from app.db.startup import insert_default_roles_tenant  # implemente para usar engine e schema
 
-# Modelos de usuário/papel que são fundamentais
-from app.db.models.user_tenant import UserTenant
-from app.db.models.role_tenant import RoleTenant 
-
-# AVISO: ItemTenant e AcessorioTenant removidos desta lista por solicitação do usuário.
-
-from app.db.startup import insert_default_roles_tenant  # critical PATCH!
-
-# LISTA CORRIGIDA E COMPLETA: SOMENTE os modelos necessários para o TAF
+# Lista dos modelos tenant-specific (se quiser manter explícito)
 TENANT_SPECIFIC_MODELS = [
-    # Modelos de Acesso e Infra que são necessários para o sistema (User/Role)
-    UserTenant, 
-    RoleTenant,    
-    
-    # Modelos do TAF (Agora incluídos para criação)
+    UserTenant,
+    RoleTenant,
     Event,
     Exercise,
     PassCriteria,
@@ -38,63 +31,50 @@ TENANT_SPECIFIC_MODELS = [
 
 class CRUDTenant:
     def create_tenant_with_schema(self, db: Session, tenant_in: TenantCreate) -> Tenant:
-        """
-        Cria o registro do Tenant no DB central e, em seguida, 
-        cria o schema e as tabelas isoladas do Tenant, e garante papéis padrão.
-        """
         new_tenant_data = tenant_in.model_dump()
         schema_name = new_tenant_data.pop("schema_name")
-        
+
         new_tenant = Tenant(
             schema_name=schema_name,
-            nome_empresa=new_tenant_data["name"],
-            # Adicione outros campos do tenant conforme sua necessidade
+            nome_empresa=new_tenant_data.get("name"),
+            # preencha outros campos se necessário
         )
-        
+
         db.add(new_tenant)
-        db.commit() 
+        db.commit()
         db.refresh(new_tenant)
 
-        try:
-            print(f"Tentando criar o schema isolado: {schema_name}")
-            db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
-            db.commit()
-            print(f"Schema {schema_name} criado com sucesso.")
+        # Validação simples do nome do schema
+        if not schema_name or not schema_name.replace("_", "").isalnum():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome de schema inválido.")
 
+        try:
+            # Cria schema e as tabelas do TenantBase dentro de uma transação DDL
+            with engine.begin() as conn:
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+                # seta search_path para criar tabelas no schema correto
+                conn.execute(text(f'SET search_path TO "{schema_name}", public'))
+                TenantBase.metadata.create_all(bind=conn)
         except Exception as e:
+            # cleanup: remover registro central se falhar o provisionamento
             db.rollback()
-            print(f"ERRO: Falha ao criar o schema '{schema_name}': {e}")
+            try:
+                db.query(Tenant).filter(Tenant.id == new_tenant.id).delete()
+                db.commit()
+            except Exception:
+                db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Falha ao criar o schema do cliente: {schema_name}. Detalhe: {e}"
+                detail=f"Falha ao provisionar schema '{schema_name}': {e}"
             )
-        
+
         try:
-            with engine.connect() as connection:
-                tables_to_create = []
-                for model in TENANT_SPECIFIC_MODELS:
-                    # O loop agora usa a lista COMPLETA de modelos TAF + User/Role
-                    table_obj = model.__table__.to_metadata(Base.metadata)
-                    table_obj.schema = schema_name
-                    tables_to_create.append(table_obj)
-
-                Base.metadata.create_all(connection, tables=tables_to_create, checkfirst=True)
-                # connection.commit() # Não é estritamente necessário em create_all
-
-            print(f"Tabelas específicas do Tenant criadas no schema {schema_name}.")
-
-            # PATCH: Garante papéis padrão no schema do tenant!
-            insert_default_roles_tenant(db, schema_name)
-            print(f"Papéis padrão inseridos para o tenant {schema_name}.")
-
-            return new_tenant
-
+            # Inserir papéis/seed no schema do tenant — implementado para aceitar engine + schema
+            insert_default_roles_tenant(engine, schema_name)
         except Exception as e:
-            db.rollback()
-            print(f"ERRO: Falha ao criar tabelas no schema '{schema_name}': {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Falha ao criar tabelas do cliente: {schema_name}. Detalhe: {e}"
-            )
+            # Log e prosseguir (ou considerar rollback completo dependendo do caso)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao inserir roles padrão: {e}")
+
+        return new_tenant
 
 tenant_crud = CRUDTenant()

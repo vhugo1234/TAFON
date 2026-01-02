@@ -4,20 +4,25 @@ uvicorn[standard]
 pydantic[email]
 python-dotenv
 
+# Pydantic v2 compat (BaseSettings foi movido)
+pydantic-settings
+
 # Banco de Dados (PostgreSQL)
-SQLAlchemy==2.0.25 # Versão estável com compatibilidade Python 3.11
-psycopg2-binary # Driver para PostgreSQL
-alembic # Se estiver usando para migrações (muito recomendado para multi-tenancy)
+SQLAlchemy==2.0.25
+psycopg2-binary
+alembic
 
 # Segurança e Autenticação
-python-jose[cryptography] # JWT - JSON Web Tokens
-passlib[bcrypt] # Hash de senha
+python-jose[cryptography]
+passlib[bcrypt]
+# bcrypt explicitamente não é estritamente necessário se usar passlib[bcrypt],
+# mas pode ficar caso instale independentemente em alguns ambientes
 bcrypt
 
-# Manipulação de Imagens e Arquivos
-python-multipart # Para upload de arquivos (necessário em admin_upload.py e company.py)
-pillow # Se precisar processar imagens (opcional, mas comum)
+# Uploads / Form parsing / Imagens
+python-multipart
+pillow
 
 # Utilidades
-tenacity # Para tentar reconectar o DB (útil no startup.py)
-httpx # Para requisições HTTP (se seu backend faz requisições externas)
+tenacity
+httpx

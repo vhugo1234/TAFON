@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.db.connection import get_db
-from app.db.models.tenant import Tenant
+from app.db.models.public import Tenant
 from app.core.security import get_current_active_superuser
 from app.core.config import settings  # se quiser tornar BASE URL configurável
 

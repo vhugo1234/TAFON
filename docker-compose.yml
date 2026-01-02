@@ -8,16 +8,15 @@ services:
     image: postgres:15-alpine
     container_name: tafon_postgres_db
     restart: always
+    env_file:
+      - .env
     environment:
-      # Credenciais para o banco de dados central
-      POSTGRES_USER: ${DB_USER:-tafon_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-tafon_pass}
-      POSTGRES_DB: ${DB_NAME:-tafon_central_db}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
-      # Persistência de dados: mapeia o volume docker para o diretório de dados do postgres
       - postgres_data:/var/lib/postgresql/data
     ports:
-      # Opcional: expõe a porta do DB para acesso externo (ex: PgAdmin, DBeaver)
       - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
@@ -30,60 +29,44 @@ services:
   # ----------------------------------------
   backend:
     build:
-      context: ./backend # ⬅️ Assumindo que seu Dockerfile está em ./backend/
+      context: ./backend
       dockerfile: Dockerfile
     container_name: tafon_backend
     restart: always
-    # Define variáveis de ambiente, essenciais para a conexão com o DB
+    env_file:
+      - .env
     environment:
-      # Usa o nome do serviço 'db' como host, pois eles estão na mesma rede Docker
-      DATABASE_URL: postgresql+psycopg2://${DB_USER:-tafon_user}:${DB_PASSWORD:-tafon_pass}@db:5432/${DB_NAME:-tafon_central_db}
-      # Configurações de ambiente (ajuste conforme necessário)
+      DATABASE_URL: postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       ENVIRONMENT: production
-      SECRET_KEY: ${SECRET_KEY} # Deve ser definido no .env
+      SECRET_KEY: ${SECRET_KEY}
     depends_on:
-      # Garante que o DB esteja "saudável" antes de iniciar o backend
       db:
         condition: service_healthy
     volumes:
-      # Mapeamento do código: útil para desenvolvimento (hot-reloading)
       - ./backend:/app
-      # Mapeamento de logs ou uploads, se aplicável
-      - backend_uploads:/app/uploads 
+      - backend_uploads:/app/uploads
     ports:
-      # Expõe a porta 8000 para acesso (http://localhost:8000)
       - "8000:8000"
     command: sh -c "cd /app && python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
-    
+
   # ----------------------------------------
   # 3. SERVIÇO DE FRONTEND (React/Vite)
   # ----------------------------------------
   frontend:
     build:
-      context: ./frontend # ⬅️ Assumindo que seu Dockerfile está em ./frontend/
+      context: ./frontend
       dockerfile: Dockerfile
     container_name: tafon_frontend
     restart: always
-    # A URL da API deve apontar para o serviço de backend
     environment:
-      # Isso será injetado no build do React/Vite (VERIFIQUE SEU Dockerfile do frontend)
-      VITE_API_URL: http://backend:8000 
+      VITE_API_URL: http://backend:8000
     volumes:
-      # Mapeamento do código para desenvolvimento (se o Dockerfile usar live-reloading)
       - ./frontend:/app
-      # Se estiver usando uma imagem final baseada em Nginx, você mapearia o build aqui:
-      # - ./frontend/dist:/usr/share/nginx/html 
     ports:
-      # Expõe a porta 3000 (ou a porta que seu frontend usa)
       - "3000:3000"
     depends_on:
       - backend
 
-# ----------------------------------------
-# 4. VOLUMES
-# ----------------------------------------
 volumes:
-  # Volume para persistir os dados do banco de dados (crucial!)
   postgres_data:
-  # Volume para uploads do backend (ex: logos, avatares)
   backend_uploads:

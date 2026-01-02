@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.db.connection import get_db
-from app.db.models.tenant import Tenant
+from app.db.models.public import Tenant
 from app.api.deps import get_current_user  # reusa a dependência já usada em outros routers
 
 logger = logging.getLogger("app.routers.company")
