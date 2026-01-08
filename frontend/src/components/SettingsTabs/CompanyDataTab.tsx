@@ -118,7 +118,7 @@ export default function CompanyDataTab() {
             />
           </Stack>
           <Typography variant="caption" color="textSecondary">
-            Imagem PNG ou JPG. O logo aparecerá nos relatórios.
+            Imagem PNG ou JPG. O logo aparecerÃ¡ nos relatórios.
           </Typography>
         </Box>
         <Button variant="contained" color="primary" onClick={handleSave}>Salvar Dados</Button>
@@ -126,3 +126,4 @@ export default function CompanyDataTab() {
     </Box>
   );
 }
+

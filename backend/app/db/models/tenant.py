@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 # backend/app/db/models/tenant.py
 # Modelos do schema 'tenant' (por cliente). Usa TenantBase separado.
 
-from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, ForeignKey, Float, func, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, ForeignKey, Float, func, Enum as SQLEnum, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from enum import Enum as PyEnum
@@ -38,9 +39,12 @@ class Exercise(TenantBase):
     name = Column(String)
     unit_of_measure = Column(String)
     max_attempts = Column(Integer, default=1)
+    execution_mode = Column(String(20), nullable=False)
+    measurement_type = Column(String(20), nullable=False)
 
     event = relationship("Event", back_populates="exercises")
     criteria = relationship("PassCriteria", back_populates="exercise")
+    evaluators = relationship("ExerciseEvaluator", back_populates="exercise")
 
 
 class PassCriteria(TenantBase):
@@ -53,19 +57,40 @@ class PassCriteria(TenantBase):
 
     exercise = relationship("Exercise", back_populates="criteria")
 
+
+# ✅ NOVO: Vinculação de Avaliadores aos Exercícios
+class ExerciseEvaluator(TenantBase):
+    __tablename__ = "exercise_evaluators"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    exercise_id = Column(Integer, ForeignKey("exercises.id"))
+    evaluator_user_id = Column(Integer, ForeignKey("user_tenant.id"))
+    is_primary = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    exercise = relationship("Exercise", back_populates="evaluators")
+    evaluator = relationship("UserTenant")
+
 # ----------------------------------------------------
 # MÓDULO 3 & 4: CANDIDATOS E RESULTADOS DA EXECUÇÃO
 # ----------------------------------------------------
 class Candidate(TenantBase):
     __tablename__ = "candidates"
+    
+    __table_args__ = (
+        # Constraint composta: CPF único POR EVENTO (permite mesmo CPF em eventos diferentes)
+        Index('ix_candidates_cpf_event', 'cpf', 'event_id', unique=True),
+    )
+    
     id = Column(Integer, primary_key=True, index=True)
     event_id = Column(Integer, ForeignKey("events.id"))
     full_name = Column(String)
-    cpf = Column(String(11), unique=True, index=True)
+    cpf = Column(String(11), index=True)  # ✅ Removido unique=True global
     registration_number = Column(String, index=True)
     gender = Column(String(1))
-
     batch_name = Column(String, nullable=True)
+    batch_number = Column(Integer, nullable=True)  # ✅ NOVO: Número dentro da turma (001, 002, 003...)
+    start_time = Column(String(5), nullable=True)  # ✅ NOVO: Horário da turma (HH:MM)
 
     event = relationship("Event", back_populates="candidates")
     results = relationship("ExecutionResult", back_populates="candidate")
@@ -107,14 +132,13 @@ class UserTenant(TenantBase):
 
     role = Column(SQLEnum(UserRoleEnum), nullable=False, default=UserRoleEnum.USER)
     role_id = Column(Integer, ForeignKey("roles_tenant.id"))
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     accepted_terms = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
+    
     role_obj = relationship("RoleTenant")
-    itens = relationship("ItemTenant", back_populates="usuario", cascade="all, delete-orphan")
+
 
 # Requerido pelo módulo de usuários
 class RoleTenant(TenantBase):

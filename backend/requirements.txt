@@ -19,6 +19,12 @@ bcrypt
 python-multipart
 pillow
 
+# PDFs e Relatórios
+reportlab
+PyPDF2
+pandas
+openpyxl
+
 # Utilidades
 tenacity
 httpx

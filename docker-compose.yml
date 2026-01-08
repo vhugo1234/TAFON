@@ -1,9 +1,4 @@
-version: '3.9'
-
 services:
-  # ----------------------------------------
-  # 1. SERVIÇO DE BANCO DE DADOS (PostgreSQL)
-  # ----------------------------------------
   db:
     image: postgres:15-alpine
     container_name: tafon_postgres_db
@@ -19,14 +14,11 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ----------------------------------------
-  # 2. SERVIÇO DE BACKEND (FastAPI/Python)
-  # ----------------------------------------
   backend:
     build:
       context: ./backend
@@ -47,23 +39,18 @@ services:
       - backend_uploads:/app/uploads
     ports:
       - "8000:8000"
-    command: sh -c "cd /app && python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: sh -c "sh ./scripts/wait-for-db.sh && python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
-  # ----------------------------------------
-  # 3. SERVIÇO DE FRONTEND (React/Vite)
-  # ----------------------------------------
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "http://localhost:8000/api/v1"
     container_name: tafon_frontend
     restart: always
-    environment:
-      VITE_API_URL: http://backend:8000
-    volumes:
-      - ./frontend:/app
     ports:
-      - "3000:3000"
+      - "3000:80"
     depends_on:
       - backend
 

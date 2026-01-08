@@ -89,10 +89,10 @@ export default function LoginPage() {
               Bem-vindo ao
             </Typography>
             <Typography variant="h2" sx={{ fontWeight: 900, mb: 2, color: "rgba(255,255,255,0.95)" }}>
-              StockWise
+              TAF ON
             </Typography>
             <Typography variant="h6" sx={{ color: "rgba(255,255,255,0.88)", maxWidth: 520 }}>
-              Gerencie ativos, solicitações e relatórios com facilidade. Faça login para acessar seu painel.
+              Gerencie Testes de Avaliação Física e relatórios com facilidade. Faça login para acessar seu painel.
             </Typography>
           </Box>
         </Box>
@@ -137,7 +137,7 @@ export default function LoginPage() {
 
             <Box sx={{ mt: 3, textAlign: "center" }}>
               <Typography variant="caption" color="text.secondary">
-                © {new Date().getFullYear()} StockWise — Todos os direitos reservados.
+                © {new Date().getFullYear()} StockWise - Todos os direitos reservados.
               </Typography>
             </Box>
           </Paper>
@@ -146,3 +146,4 @@ export default function LoginPage() {
     </>
   );
 }
+

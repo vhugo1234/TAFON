@@ -15,11 +15,10 @@ import { Link as RouterLink } from "react-router-dom";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import ReCAPTCHA from "react-google-recaptcha";
+import FitnessCenterIcon from "@mui/icons-material/FitnessCenter";
 
-// NOTE: ajuste o caminho conforme onde você colocou o arquivo.
-// Se você moveu o logo para public/, use: const logoSrc = "/logo.png";
-// Se o arquivo está dentro de src (ex: src/public/logo.png), importe assim:
-import logoSrc from "../public/logo.png";
+// Logo será servido do public folder ou usaremos um ícone
+const logoSrc = "/logo.png";
 
 type Props = {
   username: string;
@@ -50,20 +49,20 @@ export default function LoginForm({
   handleSubmit,
 }: Props) {
   const [showPwd, setShowPwd] = useState(false);
-  const [logoOk, setLogoOk] = useState(true);
+  const [logoError, setLogoError] = useState(false);
 
   return (
     <Box component="form" onSubmit={handleSubmit} noValidate sx={{ px: 3 }}>
       {/* Top area: logo + product title */}
       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, mb: 3 }}>
-        {/* Logo */}
-        {logoOk && (
+        {/* Logo - usar ícone como fallback */}
+        {!logoError ? (
           <Box
             component="img"
             src={logoSrc}
-            alt="StockWise — logotipo"
-            onError={() => setLogoOk(false)}
-            aria-label="Logotipo StockWise"
+            alt="TAFON - logotipo"
+            onError={() => setLogoError(true)}
+            aria-label="Logotipo TAFON"
             sx={{
               width: { xs: 110, sm: 160, md: 220 },
               height: "auto",
@@ -72,15 +71,26 @@ export default function LoginForm({
               mt: 0,
             }}
           />
+        ) : (
+          <Avatar
+            sx={{
+              width: 80,
+              height: 80,
+              bgcolor: 'primary.main',
+              mb: 1,
+            }}
+          >
+            <FitnessCenterIcon sx={{ fontSize: 40 }} />
+          </Avatar>
         )}
 
         {/* Product name */}
-        <Typography variant="h6" sx={{ fontWeight: 800, mt: 0.5 }}>
-          
+        <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5, color: 'primary.main' }}>
+          TAFON
         </Typography>
 
         <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
-          Entre com suas credenciais para gerenciar seus estoques.
+          Entre com suas credenciais para gerenciar testes de aptidão física.
         </Typography>
       </Box>
 
@@ -155,7 +165,9 @@ export default function LoginForm({
             />
           </Box>
         ) : (
-          <Alert severity="warning">reCAPTCHA não configurado (defina VITE_RECAPTCHA_SITE_KEY)</Alert>
+          <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
+            reCAPTCHA em modo de desenvolvimento
+          </Alert>
         )}
       </Box>
 
@@ -191,3 +203,4 @@ export default function LoginForm({
     </Box>
   );
 }
+

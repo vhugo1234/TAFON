@@ -20,10 +20,10 @@ import {
 
 /**
  * ThemeProviderWrapper atualizado para garantir que:
- * - CssBaseline é aplicado dentro do ThemeProvider (assim o body recebe o background do tema)
+ * - CssBaseline Ã© aplicado dentro do ThemeProvider (assim o body recebe o background do tema)
  * - GlobalStyles ajusta body background/color a partir do tema (garante cobertura completa)
- * - 'dark' mode tem backgrounds explícitos para ficar realmente escuro
- * - mantém compatibilidade com API antiga (theme / setTheme)
+ * - 'dark' mode tem backgrounds explÃ­citos para ficar realmente escuro
+ * - mantÃ©m compatibilidade com API antiga (theme / setTheme)
  */
 
 type ThemeContextType = {
@@ -158,3 +158,4 @@ export function ThemeProviderWrapper({ children }: { children: ReactNode }) {
     </ThemeContext.Provider>
   );
 }
+

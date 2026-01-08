@@ -16,6 +16,8 @@ from app.api.v1.endpoints import (
     candidates,
     execution,
     results,
+    evaluators,
+    field_execution,
     password_reset,
     upload_api,
 )
@@ -35,7 +37,9 @@ api_router.include_router(role_tenant.router, prefix="/roles", tags=["Roles"])
 api_router.include_router(events_taf.router, prefix="/taf/events", tags=["TAF - Eventos"])
 api_router.include_router(exercises_taf.router, prefix="/taf/exercises", tags=["TAF - Exercícios"])
 api_router.include_router(candidates.router, prefix="/taf/candidates", tags=["TAF - Candidatos"])
+api_router.include_router(evaluators.router, prefix="/taf/evaluators", tags=["TAF - Avaliadores"])
 api_router.include_router(execution.router, prefix="/taf/execution", tags=["TAF - Execução"])
+api_router.include_router(field_execution.router, prefix="/taf/field", tags=["TAF - Execução em Campo"])
 api_router.include_router(results.router, prefix="/taf/results", tags=["TAF - Resultados"])
 api_router.include_router(upload_api.router, prefix="/upload-image", tags=["Upload"])
 api_router.include_router(password_reset.router, prefix="/password-reset", tags=["Password Reset"])

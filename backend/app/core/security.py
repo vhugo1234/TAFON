@@ -1,8 +1,8 @@
-# backend/app/core/security.py
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from passlib.context import CryptContext
+from passlib.hash import pbkdf2_sha256
 from jose import jwt, JWTError
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import Depends, HTTPException, status
@@ -10,28 +10,67 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.connection import get_db
+import logging
 
-# DEFINIÇÕES IMPORTANTES (declaradas antes do uso)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger(__name__)
+
+# Configure CryptContext para suportar bcrypt e pbkdf2_sha256.
+# Preferimos bcrypt quando disponível, mas incluímos pbkdf2_sha256
+# para compatibilidade com hashes existentes.
+pwd_context = CryptContext(schemes=["bcrypt", "pbkdf2_sha256"], deprecated="auto")
+
+# JWT / OAuth2
 ALGORITHM = getattr(settings, "JWT_ALGORITHM", "HS256")
-
-# OAuth2 scheme — deve estar disponível antes de qualquer Depends(oauth2_scheme)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
-# Funções de hashing / verificação
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verifica a senha fornecida comparando com o hash armazenado.
+    - Primeiro tenta pwd_context.verify (suporta bcrypt/pbkdf2).
+    - Se houver exceção ou resultado False e o hash for pbkdf2, tenta pbkdf2_sha256.verify direto.
+    - Retorna False em qualquer outro caso.
+    """
     if not (plain_password and hashed_password):
         return False
+
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        ok = pwd_context.verify(plain_password, hashed_password)
+        if ok:
+            return True
+    except Exception as exc:
+        logger.warning("pwd_context.verify falhou: %s. Tentando fallback pbkdf2 se aplicável.", exc)
+
+    # Fallback explícito para hashes pbkdf2 (caso o pwd_context não consiga verificar)
+    try:
+        if isinstance(hashed_password, str) and hashed_password.startswith("$pbkdf2-sha256$"):
+            return pbkdf2_sha256.verify(plain_password, hashed_password)
     except Exception:
-        return False
+        logger.exception("pbkdf2_sha256.verify falhou no fallback.")
+
+    return False
+
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    """
+    Gera o hash da senha. Tenta usar pwd_context.hash; em caso de erro faz fallback
+    para pbkdf2_sha256.hash para garantir compatibilidade em ambientes sem bcrypt funcional.
+    """
+    try:
+        return pwd_context.hash(password)
+    except Exception as exc:
+        logger.warning("pwd_context.hash falhou (%s). Fazendo fallback para pbkdf2_sha256.", exc)
+        try:
+            return pbkdf2_sha256.hash(password)
+        except Exception:
+            logger.exception("pbkdf2_sha256.hash também falhou.")
+            raise
 
-# JWT
+
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Cria JWT usando settings.SECRET_KEY e settings.JWT_ALGORITHM.
+    """
     to_encode = data.copy()
     if expires_delta is None:
         minutes = getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 60)
@@ -44,6 +83,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     token = jwt.encode(to_encode, secret, algorithm=ALGORITHM)
     return token
 
+
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     secret = getattr(settings, "SECRET_KEY", None)
     if not secret:
@@ -53,6 +93,7 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except JWTError:
         return None
+
 
 def decode_token(token: str) -> Dict[str, Any]:
     payload = decode_access_token(token)
@@ -64,12 +105,12 @@ def decode_token(token: str) -> Dict[str, Any]:
         )
     return payload
 
-# Dependência pronta para validar superuser central (usada por vários módulos)
+
+# Dependência para checar superuser central (mantenho compatibilidade com código existente)
 def get_current_active_superuser(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
-    # import local para evitar import circular no topo
     from app.db.models.public import UserCentral
 
     payload = decode_token(token)

@@ -13,7 +13,8 @@ import {
 } from '@mui/material';
 import {
   Add, Edit, Delete, FormatListNumbered, PhotoCamera, Close, Public,
-  ContentCopy, InfoOutlined, Search, FileDownload, LightMode, DarkMode
+  ContentCopy, InfoOutlined, Search, FileDownload, LightMode, DarkMode,
+  Logout, Home, Business
 } from '@mui/icons-material';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -59,8 +60,8 @@ const MOCK_LOGS: LogEntry[] = [
 
 const PLAN_OPTIONS = ['free', 'premium', 'enterprise'];
 const STATUS_OPTIONS = ['active', 'inactive', 'pending', 'suspended'];
-const API_URL = '/admin/';
-const UPLOAD_API_URL = '/admin/upload/logo';
+const API_URL = '/api/v1/admin/';
+const UPLOAD_API_URL = '/api/v1/admin/upload/logo';
 
 const initialFormState: FormState = {
   name: '',
@@ -179,6 +180,23 @@ export default function AdminClientsTab() {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterPlan, setFilterPlan] = useState('');
 
+  // Funções de navegação
+  const handleLogout = () => {
+    if (window.confirm('Tem certeza que deseja sair?')) {
+      logout();
+      navigate('/login');
+    }
+  };
+
+  const handleGoToDashboard = () => {
+    navigate('/admin/dashboard');
+  };
+
+  const handleGoToClients = () => {
+    navigate('/admin/clients');
+  };
+
+
   // Cards de Totais
   const totalClients = clients.length;
   const totalUsers = clients.reduce((sum, c) => sum + c.users_total, 0);
@@ -266,7 +284,7 @@ export default function AdminClientsTab() {
     // Not a superuser -> don't call /admin and show restricted message
     if (!_isSuperuser) {
       setLoading(false);
-      setError('Acesso restrito: apenas superusuários podem ver a lista de clientes.');
+      setError('Acesso restrito: apenas superUsuários podem ver a lista de clientes.');
       return;
     }
 
@@ -306,7 +324,7 @@ export default function AdminClientsTab() {
     setOpenModal(true);
   };
   const handleDelete = async (client: TenantClient) => {
-    if (!window.confirm(`Confirma remoção do cliente "${client.name}"? Esta ação é irreversível.`)) return;
+    if (!window.confirm(`Confirma remoção do cliente "${client.name}"? Esta ação Ã© irreversível.`)) return;
     setError(null);
     try {
       await api.delete(`${API_URL}${client.id}`);
@@ -328,20 +346,35 @@ export default function AdminClientsTab() {
     setSaving(true);
     setError(null);
     let finalLogoUrl = form.logo_url;
+    
     try {
+      // CORREÇÃO: Só fazer upload se realmente houver um arquivo novo selecionado
       if (selectedLogoFile) {
-        const formData = new FormData();
-        formData.append('logo', selectedLogoFile);
-        formData.append('tenant_id', isEditing && selectedClient ? String(selectedClient.id) : 'new');
-        setSnackbarMessage('Enviando logo...');
-        setSnackbarSeverity('info');
-        setSnackbarOpen(true);
-        const uploadResp = await api.post(UPLOAD_API_URL, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        finalLogoUrl = uploadResp.data.logo_url;
+        try {
+          const formData = new FormData();
+          formData.append('logo', selectedLogoFile);
+          formData.append('tenant_id', isEditing && selectedClient ? String(selectedClient.id) : 'new');
+          
+          setSnackbarMessage('Enviando logo...');
+          setSnackbarSeverity('info');
+          setSnackbarOpen(true);
+          
+          const uploadResp = await api.post(UPLOAD_API_URL, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          
+          finalLogoUrl = uploadResp.data.logo_url;
+        } catch (uploadErr: any) {
+          console.error('Erro no upload de logo:', uploadErr);
+          // Continuar sem o logo se o upload falhar
+          setSnackbarMessage('Aviso: Falha no upload do logo. Salvando sem logo.');
+          setSnackbarSeverity('warning');
+          setSnackbarOpen(true);
+          finalLogoUrl = null;
+        }
       }
-      // Prepara o payload garantindo que só envie o que o backend espera
+      
+      // Prepara o payload garantindo que Só envie o que o backend espera
       const payload: any = {
         name: form.name,
         schema_name: form.schema_name && form.schema_name.trim() !== '' ? form.schema_name.trim() : slugifySchema(form.name),
@@ -355,8 +388,7 @@ export default function AdminClientsTab() {
         dominio_url: form.dominio_url || null,
       };
 
-      if (form.admin_name) payload.admin_name = form.admin_name;
-      if (form.admin_email) payload.admin_email = form.admin_email;
+      // Só incluir campos de admin se estiverem preenchidos
       if (form.admin_password) payload.admin_password = form.admin_password;
 
       let resp;
@@ -367,7 +399,7 @@ export default function AdminClientsTab() {
       } else {
         resp = await api.post(API_URL, payload);
         if (resp.data.admin_temp_password) {
-          setSnackbarMessage(`Cliente criado! Senha provisória do admin: ${resp.data.admin_temp_password}`);
+          setSnackbarMessage(`Cliente criado! Senha proviSória do admin: ${resp.data.admin_temp_password}`);
           setAdminTempPassword(resp.data.admin_temp_password);
           setSnackbarSeverity('info');
         } else {
@@ -379,7 +411,7 @@ export default function AdminClientsTab() {
       fetchClients();
     } catch (err: any) {
       let errorNode: React.ReactNode = "Erro ao salvar cliente.";
-      // FastAPI: geralmente detail é array ou string
+      // FastAPI: geralmente detail Ã© array ou string
       if (err?.response?.data?.detail) {
         const details = err.response.data.detail;
         if (Array.isArray(details)) {
@@ -488,37 +520,67 @@ export default function AdminClientsTab() {
   // === UI ===
   return (
     <Box sx={{ p: { xs: 1, sm: 3 }, bgcolor: darkMode ? '#171717' : 'background.default', minHeight: '100vh', transition: '.2s' }}>
-      {/* TÍTULO DA PÁGINA */}
-    <Typography
-      variant="h3"
-      component="h1"
-      fontWeight={900}
-      textAlign="center"
-      sx={{ mb: 4, mt: 1 }}
-    >
-      Administração de Clientes
-    </Typography>
+      {/* CABEÇALHO COM TÃTULO E BOTÕES DE AÇÃO */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
+        <Typography
+          variant="h3"
+          component="h1"
+          fontWeight={900}
+          sx={{ flexGrow: 1 }}
+        >
+          Administração de Clientes
+        </Typography>
+
+        {/* Botões de navegação e Ações */}
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+          <Tooltip title="Ir para Dashboard">
+            <IconButton 
+              onClick={handleGoToDashboard}
+              color="primary"
+              sx={{ 
+                bgcolor: 'background.paper',
+                '&:hover': { bgcolor: 'primary.light' }
+              }}
+            >
+              <Home />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title={darkMode ? "Modo Claro" : "Modo Escuro"}>
+            <IconButton onClick={() => setDarkMode(m => !m)}>
+              {darkMode ? <LightMode /> : <DarkMode />}
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Exportar CSV">
+            <IconButton onClick={handleExportCSV}>
+              <FileDownload />
+            </IconButton>
+          </Tooltip>
+
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<Logout />}
+            onClick={handleLogout}
+            size={isMobile ? "small" : "medium"}
+          >
+            Sair
+          </Button>
+        </Stack>
+      </Box>
 
       {/* Totais e filtros */}
       <Grid container spacing={2} sx={{ mb: 2 }}>
         <Grid item xs={6} sm={3}><Chip label={`Clientes: ${totalClients}`} color="primary" sx={{ fontWeight: 700, fontSize: '1.15rem', py: 1, px: 2 }}/></Grid>
         <Grid item xs={6} sm={3}><Chip label={`Usuários: ${totalUsers}`} color="info" sx={{ fontWeight: 700, fontSize: '1.15rem', py: 1, px: 2 }}/></Grid>
         <Grid item xs={6} sm={3}><Chip label={`Ativos: ${totalAssets}`} color="warning" sx={{ fontWeight: 700, fontSize: '1.15rem', py: 1, px: 2 }}/></Grid>
-        <Grid item xs={6} sm={3} textAlign="right">
-          <Tooltip title={darkMode ? "Modo Claro" : "Modo Escuro"}>
-            <IconButton onClick={() => setDarkMode(m => !m)}>
-              {darkMode ? <LightMode /> : <DarkMode />}
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Exportar CSV">
-            <IconButton onClick={handleExportCSV}><FileDownload /></IconButton>
-          </Tooltip>
-        </Grid>
+        <Grid item xs={6} sm={3} />
       </Grid>
       {/* Busca/Filtros */}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mb: 2 }}>
         <TextField
-          placeholder="Buscar por nome, schema, responsável, email, domínio..."
+          placeholder="Buscar por nome, schema, Responsável, email, Domínio..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           variant="outlined"
@@ -759,7 +821,7 @@ export default function AdminClientsTab() {
                 <TextField label="Expira em" name="plan_expires_at" value={form.plan_expires_at} onChange={handleTextChange} type="date" InputLabelProps={{ shrink: true }} fullWidth variant="outlined" size="medium" />
               </Stack>
             </Grid>
-            {/* Área da Logo */}
+            {/* Ãrea da Logo */}
             <Grid item xs={12} md={5}>
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
                 <Divider sx={{ width: '100%', mb: 2 }}>Logo</Divider>
@@ -817,7 +879,7 @@ export default function AdminClientsTab() {
                 )}
               </Box>
             </Grid>
-            {/* Linha responsável/admin */}
+            {/* Linha Responsável/admin */}
             <Grid item xs={12}>
               <Divider sx={{ my: 2 }}>Responsável / Admin</Divider>
               <Grid container spacing={2}>
@@ -882,14 +944,14 @@ export default function AdminClientsTab() {
           )}
         </Box>
       </Dialog>
-      {/* Snackbar para feedback e senha provisória */}
+      {/* Snackbar para feedback e senha proviSória */}
       <Snackbar open={snackbarOpen} autoHideDuration={copiedPwd ? 2000 : 5000} onClose={handleSnackbarClose}>
         <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: "100%" }}>
           {snackbarMessage}
           {adminTempPassword && (
             <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="body2">
-                Senha provisória do admin: <b>{adminTempPassword}</b>
+                Senha proviSória do admin: <b>{adminTempPassword}</b>
               </Typography>
               <IconButton color="primary" size="small" onClick={copyPwd}><ContentCopy /></IconButton>
               {copiedPwd && <Chip label="Copiado!" color="success" size="small"/>}
@@ -900,3 +962,4 @@ export default function AdminClientsTab() {
     </Box>
   );
 }
+
