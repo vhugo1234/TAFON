@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.api.v1.endpoints.company import router as company_router
 
 app = FastAPI(
-    title="Almoxarifado SaaS",
+    title="TAFON API",
     version="1.0.0",
     description="API multi-tenant para gestão de almoxarifado, ativos e clientes."
 )
@@ -39,6 +39,8 @@ else:
     ALLOWED_ORIGINS = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ]
 
 app.add_middleware(

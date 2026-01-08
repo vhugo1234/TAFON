@@ -6,7 +6,7 @@ import {
 import PhotoCamera from '@mui/icons-material/PhotoCamera';
 import api from '../lib/api';
 
-// Modelo do usuário público cadastrado (frontend)
+// Modelo do usuÃ¡rio pÃºblico cadastrado (frontend)
 type PublicUserForm = {
   username: string;
   email: string;
@@ -56,7 +56,7 @@ const initialForm: PublicUserForm = {
 };
 
 const TERM_TEXT = `
-Termo de Uso e Segurança da Plataforma StockWise
+Termo de Uso e SeguranÃ§a da Plataforma StockWise
 
 ... (omitido para brevidade) ...
 `;
@@ -64,7 +64,7 @@ Termo de Uso e Segurança da Plataforma StockWise
 export default function PublicRegisterPage() {
   const [searchParams] = useSearchParams();
 
-  // extração flexível do tenant a partir de query params
+  // extraÃ§Ã£o flexÃ­vel do tenant a partir de query params
   const schemaParam = searchParams.get('schema_name') ?? searchParams.get('schema');
   const paramCandidates = [
     searchParams.get('tenant_id'),
@@ -74,7 +74,7 @@ export default function PublicRegisterPage() {
   ];
   const initialTenantFromUrl = (paramCandidates.find(x => x && x.trim() !== "") ?? "") as string;
 
-  // tenantId virá do link; não exibimos campo manual ao usuário conforme solicitado
+  // tenantId virÃ¡ do link; nÃ£o exibimos campo manual ao usuÃ¡rio conforme solicitado
   const [tenantId] = useState<string>(initialTenantFromUrl);
 
   const [form, setForm] = useState<PublicUserForm>({ ...initialForm, tenant_id: tenantId });
@@ -163,7 +163,7 @@ export default function PublicRegisterPage() {
     setError(null);
 
     if (!tenantId || tenantId.trim() === "") {
-      setError("Registro disponível somente via link institucional. Abra o link fornecido pela sua instituição.");
+      setError("Registro disponÃ­vel somente via link institucional. Abra o link fornecido pela sua instituiÃ§Ã£o.");
       return;
     }
 
@@ -176,16 +176,16 @@ export default function PublicRegisterPage() {
         typeof value === "string" &&
         value.trim() === ""
       ) {
-        setError("Preencha todos os campos obrigatórios.");
+        setError("Preencha todos os campos obrigatÃ³rios.");
         return;
       }
     }
     if (!form.avatar_file) {
-      setError("A foto é obrigatória.");
+      setError("A foto Ã© obrigatÃ³ria.");
       return;
     }
     if (!form.accepted_terms) {
-      setError("É obrigatório aceitar os Termos de Uso e Segurança para se cadastrar.");
+      setError("Ã‰ obrigatÃ³rio aceitar os Termos de Uso e SeguranÃ§a para se cadastrar.");
       return;
     }
 
@@ -215,7 +215,7 @@ export default function PublicRegisterPage() {
       const resp = await postWithFallback(formData, tenantId);
       // If backend returned a body with message, show it
       const data = resp?.data;
-      setSuccess(data?.message ?? 'Cadastro enviado! Aguarde a aprovação do administrador.');
+      setSuccess(data?.message ?? 'Cadastro enviado! Aguarde a aprovaÃ§Ã£o do administrador.');
       setForm({ ...initialForm, tenant_id: tenantId });
       setAvatarPreview(null);
       setTermoLido(false);
@@ -224,7 +224,7 @@ export default function PublicRegisterPage() {
 
       // network / CORS detection
       if (err?.message && (err.message.includes('Network Error') || err.code === 'ERR_NETWORK')) {
-        setError('Erro de rede ou CORS: verifique se o backend está rodando e permitindo requisições deste frontend (CORS). Confira o console do backend também.');
+        setError('Erro de rede ou CORS: verifique se o backend estÃ¡ rodando e permitindo requisiÃ§Ãµes deste frontend (CORS). Confira o console do backend tambÃ©m.');
         return;
       }
 
@@ -280,14 +280,14 @@ export default function PublicRegisterPage() {
         </Stack>
 
         <Typography color="text.secondary" align="center" gutterBottom>
-          Preencha todos os campos obrigatórios para realizar seu cadastro.
+          Preencha todos os campos obrigatÃ³rios para realizar seu cadastro.
         </Typography>
 
         {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
         {tenantMissing && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            Registro disponível somente via link institucional. Abra o link fornecido pela sua instituição. Se você recebeu um código, peça ao administrador o link completo.
+            Registro disponÃ­vel somente via link institucional. Abra o link fornecido pela sua instituiÃ§Ã£o. Se vocÃª recebeu um cÃ³digo, peÃ§a ao administrador o link completo.
           </Alert>
         )}
 
@@ -306,7 +306,7 @@ export default function PublicRegisterPage() {
               startIcon={<PhotoCamera />}
               sx={{ borderRadius: 3, fontWeight: 'bold' }}
             >
-              Enviar Foto (obrigatório)
+              Enviar Foto (obrigatÃ³rio)
               <input
                 type="file"
                 accept="image/*"
@@ -325,12 +325,12 @@ export default function PublicRegisterPage() {
           <TextField label="CPF" name="cpf" value={form.cpf} onChange={handleChange} fullWidth margin="normal" required />
           <TextField label="Telefone" name="phone" value={form.phone} onChange={handleChange} fullWidth margin="normal" required />
           <TextField label="Departamento" name="department" value={form.department} onChange={handleChange} fullWidth margin="normal" required />
-          <TextField label="Instituição" name="institution" value={form.institution} onChange={handleChange} fullWidth margin="normal" required />
+          <TextField label="InstituiÃ§Ã£o" name="institution" value={form.institution} onChange={handleChange} fullWidth margin="normal" required />
           <TextField label="Data de Nascimento" name="birth_date" type="date" value={form.birth_date} onChange={handleChange} fullWidth margin="normal" InputLabelProps={{ shrink: true }} required />
-          <TextField label="Observações" name="notes" value={form.notes} onChange={handleChange} fullWidth margin="normal" />
-          <TextField label="Endereço" name="address" value={form.address} onChange={handleChange} fullWidth margin="normal" required />
+          <TextField label="ObservaÃ§Ãµes" name="notes" value={form.notes} onChange={handleChange} fullWidth margin="normal" />
+          <TextField label="EndereÃ§o" name="address" value={form.address} onChange={handleChange} fullWidth margin="normal" required />
           <TextField
-            label="Função"
+            label="FunÃ§Ã£o"
             name="role"
             select
             value={form.role}
@@ -347,7 +347,7 @@ export default function PublicRegisterPage() {
 
           <Box sx={{ mt: 2 }}>
             <Button variant="text" color="primary" onClick={handleAbrirTermo}>
-              Ler Termo de Uso e Segurança
+              Ler Termo de Uso e SeguranÃ§a
             </Button>
             <FormControlLabel
               control={
@@ -358,10 +358,10 @@ export default function PublicRegisterPage() {
                   disabled={!termoLido}
                 />
               }
-              label="Li e aceito o Termo de Uso e Segurança da Plataforma StockWise"
+              label="Li e aceito o Termo de Uso e SeguranÃ§a da Plataforma StockWise"
             />
             <Dialog open={termoOpen} onClose={handleFecharTermo} maxWidth="md" fullWidth>
-              <DialogTitle>Termo de Uso e Segurança da Plataforma StockWise</DialogTitle>
+              <DialogTitle>Termo de Uso e SeguranÃ§a da Plataforma StockWise</DialogTitle>
               <DialogContent dividers>
                 <Typography variant="body2" align="left" sx={{ whiteSpace: "pre-line" }}>
                   {TERM_TEXT}
@@ -390,3 +390,4 @@ export default function PublicRegisterPage() {
     </Box>
   );
 }
+

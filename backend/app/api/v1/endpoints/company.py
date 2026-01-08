@@ -13,7 +13,9 @@ from app.db.models.public import Tenant
 from app.api.deps import get_current_user  # reusa a dependência já usada em outros routers
 
 logger = logging.getLogger("app.routers.company")
-router = APIRouter(prefix="/company", tags=["Company"])
+
+# CORREÇÃO: não definir prefix aqui; prefix será aplicado em api_router.include_router(...)
+router = APIRouter()  # antes: APIRouter(prefix="/company", tags=["Company"])
 
 # Diretorio público já montado no main.py: app.mount("/static/logos", StaticFiles(...))
 UPLOAD_DIRECTORY = "static/logos"
@@ -33,8 +35,7 @@ def get_schema_name(current_user):
 def get_company(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """
     Retorna os dados da empresa (tenant) associados ao tenant corrente (via current_user.schema_name).
-    Busca o registro na tabela central `tenants` que fica no schema `public` — por isso
-    ajustamos temporarily o search_path para `public` antes da query.
+    Busca o registro na tabela central `tenants` que fica no schema `public`.
     """
     schema_name = get_schema_name(current_user)
     if not schema_name:
@@ -59,7 +60,8 @@ def get_company(db: Session = Depends(get_db), current_user=Depends(get_current_
         # restaura search_path para o schema do tenant atual (se existir)
         try:
             if schema_name:
-                db.execute(text(f"SET search_path TO {schema_name}"))
+                # usar aspas se schema_name puder conter caracteres especiais
+                db.execute(text(f'SET search_path TO "{schema_name}"'))
         except Exception:
             # se não der para restaurar, apenas ignore para não quebrar a API
             pass
@@ -148,6 +150,6 @@ async def update_company(
         # restaura search_path para o schema do tenant atual (se existir)
         try:
             if schema_name:
-                db.execute(text(f"SET search_path TO {schema_name}"))
+                db.execute(text(f'SET search_path TO "{schema_name}"'))
         except Exception:
             pass

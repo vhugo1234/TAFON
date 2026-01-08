@@ -9,13 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session
 from app.db.connection import get_db
 from app.db.models.public import Tenant
-from app.core.security import get_current_active_superuser
-from app.core.config import settings  # se quiser tornar BASE URL configurável
+from app.api.deps_admin import get_current_admin_superuser
 
 logger = logging.getLogger("app.routers.admin.upload")
 router = APIRouter(
-    prefix="/upload",
-    dependencies=[Depends(get_current_active_superuser)],
+    dependencies=[Depends(get_current_admin_superuser)],
 )
 
 # Configuração de Armazenamento (Ajuste para seu ambiente: S3, Azure, Local)

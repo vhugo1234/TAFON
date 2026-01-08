@@ -445,7 +445,7 @@ export default function UserManagementTab() {
               <TextField label="Senha" name="password" type="password" value={form.password || ""} onChange={handleChange} fullWidth margin="normal" required />
             )}
             {editUser && (
-              <TextField label="Nova senha (se quiser trocar)" name="password" type="password" value={form.password || ""} onChange={handleChange} fullWidth margin="normal" />
+              <TextField label="Nova senha (se querer trocar)" name="password" type="password" value={form.password || ""} onChange={handleChange} fullWidth margin="normal" />
             )}
             <TextField
               label="Função"
@@ -529,3 +529,4 @@ export default function UserManagementTab() {
     </Box>
   );
 }
+

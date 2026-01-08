@@ -214,7 +214,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (!access_token || isTokenExpired(access_token)) {
         setLoading(false);
-        return { success: false, error: "Token inválido/expirado recebido." };
+        return { success: false, error: "Token invÃ¡lido/expirado recebido." };
       }
 
       setTokenState(access_token);
@@ -277,7 +277,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // auto-logout quando token expirar durante a sessão
+  // auto-logout quando token expirar durante a sessÃ£o
   useEffect(() => {
     if (!token) return;
     const payload = decodeJwtPayload(token);
@@ -311,3 +311,4 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+

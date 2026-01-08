@@ -3,6 +3,7 @@
 import React from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Box, Typography, Container, Tabs, Tab } from '@mui/material';
+import { useAuth } from '../contexts/AuthContext';
 
 // Função para mapear o path para o valor da Tab
 function a11yProps(index: number) {
@@ -15,6 +16,7 @@ function a11yProps(index: number) {
 const AdminDasheboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout } = useAuth();
 
   // Mapeia o caminho atual para o índice da aba
   const currentPath = location.pathname;
@@ -27,17 +29,28 @@ const AdminDasheboard: React.FC = () => {
 
   return (
     <Container maxWidth="xl">
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Dashboard Central de Administração
-        </Typography>
-        
-        {/* Navegação entre abas do Admin */}
-        <Tabs value={tabValue} onChange={handleChange} aria-label="Navegação do Administrador">
-          <Tab label="Clientes/Tenants" value="clients" {...a11yProps(0)} />
-          <Tab label="Visão Geral" value="dashboard" {...a11yProps(1)} />
-          {/* Adicione outras abas, como "Usuários Centrais", "Logs", etc. */}
-        </Tabs>
+      <Box sx={{ 
+        borderBottom: 1, 
+        borderColor: 'divider', 
+        mb: 3,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 2
+      }}>
+        <Box sx={{ flexGrow: 1 }}>
+          <Typography variant="h4" component="h1" gutterBottom>
+            Dashboard Central de Administração
+          </Typography>
+          
+          {/* Navegação entre abas do Admin */}
+          <Tabs value={tabValue} onChange={handleChange} aria-label="Navegação do Administrador">
+            <Tab label="Clientes/Tenants" value="clients" {...a11yProps(0)} />
+            <Tab label="Visão Geral" value="dashboard" {...a11yProps(1)} />
+            {/* Adicione outras abas, como "Usuários Centrais", "Logs", etc. */}
+          </Tabs>
+        </Box>
       </Box>
 
       {/* Conteúdo específico da rota aninhada é renderizado aqui */}
@@ -49,3 +62,4 @@ const AdminDasheboard: React.FC = () => {
 };
 
 export default AdminDasheboard;
+

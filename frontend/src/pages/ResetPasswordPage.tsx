@@ -17,12 +17,12 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     setStatus({ type: 'idle' });
     if (password !== confirm) {
-      setStatus({ type: 'error', message: 'As senhas não coincidem' });
+      setStatus({ type: 'error', message: 'As senhas nÃ£o coincidem' });
       return;
     }
     try {
       const res = await axios.post('/api/auth/reset-password', { token, email, password });
-      setStatus({ type: 'success', message: 'Senha alterada com sucesso. Você será redirecionado.' });
+      setStatus({ type: 'success', message: 'Senha alterada com sucesso. VocÃª serÃ¡ redirecionado.' });
       setTimeout(() => navigate('/login'), 1500);
     } catch (err: any) {
       setStatus({ type: 'error', message: err.response?.data?.error || 'Erro ao redefinir senha' });
@@ -40,3 +40,4 @@ export default function ResetPasswordPage() {
     </Box>
   );
 }
+

@@ -18,10 +18,18 @@ Base = declarative_base()
 def get_db() -> Generator[Session, None, None]:
     """
     Dependência do FastAPI para obter sessão do SQLAlchemy.
-    Uso nos endpoints: db: Session = Depends(get_db)
+    Esta versão garante rollback() automaticamente se uma exceção ocorrer
+    durante a requisição, evitando que a mesma Session fique em estado
+    'aborted' e cause erros subsequentes.
     """
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         db.close()
