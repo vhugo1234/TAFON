@@ -1,45 +1,38 @@
 # backend/app/api/v1/endpoints/__init__.py
-import importlib
-import types
+"""
+TEMPORARY SHIM: Defensive imports to prevent ModuleNotFoundError.
+Creates placeholder routers for missing modules.
+"""
+import sys
 import traceback
 from fastapi import APIRouter
 
-_expected = [
-    "auth",
-    "admin_tenants",
-    "admin_upload",
-    "company",
-    "tenant_auth",
-    "tenant_public_register",
-    "users",
-    "role_tenant",
-    "events_taf",
-    "exercises_taf",
-    "candidates",
-    "execution",
-    "results",
-    "upload_api",
-    "password_reset",
-    "password_reset",  # duplicado é tolerado
-    "upload_api",      # duplicado tolerado
-    "password_reset",
-    "password_reset",
-    "password_reset",
+# List of expected endpoint modules
+EXPECTED_MODULES = [
+    "auth", "items", "asset", "acessorios", "emprestimos",
+    "admin_tenants", "admin_upload", "tenant_auth", "users",
+    "upload_api", "password_reset", "events_taf", "exercises_taf",
+    "candidates", "execution", "results", "role_tenant", "company",
+    "tenant_public_register"
 ]
 
-__all__ = []
+def _create_placeholder_module(module_name: str):
+    """Create a placeholder module with an empty router."""
+    import types
+    module = types.ModuleType(module_name)
+    module.router = APIRouter()
+    return module
 
-for mod in {m for m in _expected if m}:  # remove duplicatas e vazios
-    fullname = f"app.api.v1.endpoints.{mod}"
+# Try to import each module, create placeholder if it fails
+for module_name in EXPECTED_MODULES:
     try:
-        m = importlib.import_module(fullname)
-    except Exception:
-        # cria módulo placeholder com um router vazio para manter compatibilidade de import
-        m = types.ModuleType(mod)
-        m.router = APIRouter()
-        # opcional: registrar um endpoint que retorna aviso (não exposto se router não for incluído)
-        # m.router.get("/_placeholder")(lambda: {"warning": f"Placeholder router for {mod}"})
-        print(f"[WARN] Placeholder module created for missing endpoint: {fullname}")
+        exec(f"from . import {module_name}")
+    except ImportError as e:
+        print(f"[WARNING] Could not import endpoint '{module_name}': {e}")
+        print(f"[WARNING] Creating placeholder module for '{module_name}'")
+        # Don't mask the error completely - log it
         traceback.print_exc()
-    globals()[mod] = m
-    __all__.append(mod)
+        # Create placeholder in sys.modules so future imports work
+        full_module_name = f"app.api.v1.endpoints.{module_name}"
+        if full_module_name not in sys.modules:
+            sys.modules[full_module_name] = _create_placeholder_module(full_module_name)

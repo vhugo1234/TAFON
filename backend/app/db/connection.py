@@ -1,35 +1,31 @@
-from typing import Generator
+# backend/app/db/connection.py
+"""
+Database connection management.
+TEMPORARY FIX: Basic implementation to support startup.
+"""
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session, declarative_base
-import os
+from sqlalchemy.orm import sessionmaker, Session
+from app.core.config import settings
+from typing import Generator
 
-# Exemplo: ler URL do env (recomenda-se usar var de ambiente)
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    os.getenv("SQLALCHEMY_DATABASE_URI", "postgresql://tafon_user:tafon123456@db:5432/tafon_central_db")
+# Create database engine
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    echo=False  # Set to True for SQL query logging
 )
 
-engine = create_engine(DATABASE_URL, future=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+# Create session factory
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Expor Base para uso em scripts que precisam criar tabelas (Base.metadata.create_all)
-Base = declarative_base()
 
 def get_db() -> Generator[Session, None, None]:
     """
-    Dependência do FastAPI para obter sessão do SQLAlchemy.
-    Esta versão garante rollback() automaticamente se uma exceção ocorrer
-    durante a requisição, evitando que a mesma Session fique em estado
-    'aborted' e cause erros subsequentes.
+    Dependency to get database session.
+    Yields a database session and ensures it's closed after use.
     """
     db = SessionLocal()
     try:
         yield db
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        raise
     finally:
         db.close()

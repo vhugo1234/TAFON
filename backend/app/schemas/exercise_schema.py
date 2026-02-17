@@ -1,9 +1,13 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 
-# ======================================
-# SCHEMAS DE EXERCÍCIOS
-# ======================================
+from pydantic import BaseModel, Field
+from typing import Optional, List, Literal
+from datetime import datetime
+import pydantic
+
+# Pydantic v1/v2 compatibility
+PYDANTIC_V2 = int(pydantic.__version__.split('.')[0]) >= 2
 
 class ExerciseBase(BaseModel):
     """Base para exercícios do TAF"""
@@ -32,14 +36,13 @@ class ExerciseUpdate(BaseModel):
 class ExerciseOut(ExerciseBase):
     """Schema de resposta de exercício"""
     id: int
-    event_id: int
-    execution_mode: str
-    measurement_type: str
-    
-    # Contagem de critérios relacionados
-    total_criteria: Optional[int] = Field(default=0, description="Total de critérios de aprovação cadastrados")
-    
-    model_config = ConfigDict(from_attributes=True)
+    exercise_id: int # Para contexto, embora não seja essencial na criação
+
+    if PYDANTIC_V2:
+        model_config = {'from_attributes': True}
+    else:
+        class Config:
+            from_attributes = True
 
 # ======================================
 # SCHEMAS DE CRITÉRIOS DE APROVAÇÃO
@@ -58,16 +61,18 @@ class PassCriteriaCreate(PassCriteriaBase):
     # Tornado opcional porque o endpoint fornece exercise_id via path
     exercise_id: Optional[int] = Field(None, description="ID do exercício")
 
-class PassCriteriaUpdate(BaseModel):
-    """Schema para atualização de critério - campos opcionais"""
-    gender: Optional[str] = Field(None, pattern="^[MF]$")
-    min_value: Optional[float] = None
-    max_time_s: Optional[int] = None
-    
-    model_config = ConfigDict(from_attributes=True)
+class ExerciseUpdate(BaseModel):
+    """
+    Schema for updating an exercise.
+    All fields are optional.
+    """
+    event_id: Optional[int] = Field(None, description="ID do Evento TAF")
+    name: Optional[str] = Field(None, max_length=128, description="Nome do exercício")
+    unit_of_measure: Optional[str] = Field(None, max_length=50, description="Unidade")
+    max_attempts: Optional[int] = Field(None, description="Número máximo de tentativas")
+    criteria: Optional[List[PassCriteriaCreate]] = Field(None, description="Lista de critérios de aprovação")
 
-class PassCriteriaOut(PassCriteriaBase):
-    """Schema de resposta de critério de aprovação"""
+class ExerciseOut(ExerciseBase):
     id: int
     exercise_id: int
     
@@ -88,4 +93,8 @@ class ExerciseList(BaseModel):
     page: int
     page_size: int
     
-    model_config = ConfigDict(from_attributes=True)
+    if PYDANTIC_V2:
+        model_config = {'from_attributes': True}
+    else:
+        class Config:
+            from_attributes = True

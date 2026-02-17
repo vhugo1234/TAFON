@@ -51,7 +51,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Ensure static / uploads directories exist before mounting (prevents runtime error)
+# Ensure static and uploads directories exist before mounting
+# TEMPORARY FIX: Create directories if they don't exist to avoid startup errors
 Path("static/logos").mkdir(parents=True, exist_ok=True)
 Path("static/imagens").mkdir(parents=True, exist_ok=True)
 Path("uploads").mkdir(parents=True, exist_ok=True)

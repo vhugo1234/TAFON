@@ -6,15 +6,20 @@ from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Boolean, F
 from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Boolean, ForeignKey, Float, Numeric, func, Enum as SQLEnum, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
-from enum import Enum as PyEnum
+from sqlalchemy.dialects.postgresql import JSONB
+import enum
 
 # Base para todos os modelos que pertencerão ao schema do Tenant
 TenantBase = declarative_base()
 
-class UserRoleEnum(str, PyEnum):
+class UserRoleEnum(str, enum.Enum):
+    """Enum for user roles in tenant schema"""
     ADMIN = "admin"
     USER = "user"
-
+    
+# Keep old name for compatibility
+UserRole = UserRoleEnum
+    
 # ----------------------------------------------------
 # MÓDULO 1: EVENTOS (O TAF)
 # ----------------------------------------------------
@@ -231,7 +236,6 @@ class UserTenant(TenantBase):
     address = Column(String(255), nullable=True)
     specialty = Column(String(128), nullable=True)
     avatar_url = Column(String(255), nullable=True)
-
     role = Column(SQLEnum(UserRoleEnum), nullable=False, default=UserRoleEnum.USER)
     role_id = Column(Integer, ForeignKey("roles_tenant.id"))
     custom_role = Column(String(128), nullable=True)
@@ -254,10 +258,14 @@ class UserTenant(TenantBase):
     signature_verified = Column(Boolean, default=False)
     
     role_obj = relationship("RoleTenant")
+    itens = relationship("ItemTenant", back_populates="usuario", cascade="all, delete-orphan")
+    pass
 
-
-# Requerido pelo módulo de usuários
+# Role/Permission model for tenants
 class RoleTenant(TenantBase):
+    """
+    Roles and permissions for tenant users.
+    """
     __tablename__ = "roles_tenant"
 
     id = Column(Integer, primary_key=True, index=True)

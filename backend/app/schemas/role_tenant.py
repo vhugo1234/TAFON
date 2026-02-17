@@ -2,8 +2,8 @@ from typing import Optional
 from pydantic import BaseModel, Field
 import pydantic
 
-# Detecta se estamos usando Pydantic v2
-_PYDANTIC_V2 = int(pydantic.__version__.split(".")[0]) >= 2
+# Pydantic v1/v2 compatibility
+PYDANTIC_V2 = int(pydantic.__version__.split('.')[0]) >= 2
 
 # Importa validators compatíveis com v1/v2
 if _PYDANTIC_V2:
