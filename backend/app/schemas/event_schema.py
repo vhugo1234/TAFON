@@ -1,8 +1,8 @@
 # backend/app/schemas/event_schema.py
 
 from pydantic import BaseModel, Field, ConfigDict
-from datetime import date, datetime
-from typing import Optional
+from datetime import date
+from typing import Optional, List
 
 # Base para leitura/resposta
 class EventBase(BaseModel):
@@ -17,7 +17,10 @@ class EventBase(BaseModel):
 # Schema de criação
 class EventCreate(EventBase):
     """Schema para criação de novo evento"""
-    pass
+    # opcional: lista explícita de dias do evento (YYYY-MM-DD)
+    event_dates: Optional[List[date]] = None
+    # opcional: id do coordenador (UserTenant.id) para vincular ao evento
+    coordinator_id: Optional[int] = None
 
 # Schema de atualização (todos os campos opcionais)
 class EventUpdate(BaseModel):
@@ -27,6 +30,10 @@ class EventUpdate(BaseModel):
     date_end: Optional[date] = None
     location: Optional[str] = Field(None, max_length=255)
     is_active: Optional[bool] = None
+    # opcional: lista explícita de dias para sobrescrever
+    event_dates: Optional[List[date]] = None
+    # opcional: id do coordenador para atualizar
+    coordinator_id: Optional[int] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,10 +45,15 @@ class EventOut(EventBase):
     # Campos calculados/relacionados (opcional)
     total_candidates: Optional[int] = Field(default=0, description="Total de candidatos inscritos")
     total_exercises: Optional[int] = Field(default=0, description="Total de exercícios cadastrados")
+    # Lista de dias explícitos do evento (quando usada)
+    event_dates: Optional[List[date]] = None
+    # Coordenador vinculado (opcional) — retorna o ID e nome se disponível
+    coordinator_id: Optional[int] = None
+    coordinator_name: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 
-# Schema para listagem com paginação
+# Schema para listagem com paginaç��o
 class EventList(BaseModel):
     """Schema para resposta de lista paginada de eventos"""
     items: list[EventOut]

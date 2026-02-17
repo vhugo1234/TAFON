@@ -1,0 +1,445 @@
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, UploadFile, File, Form
+from sqlalchemy.orm import Session
+from sqlalchemy import text, or_, func
+from sqlalchemy.exc import IntegrityError
+from typing import Any, Dict, Optional
+from fastapi.responses import JSONResponse
+import os
+import time
+import shutil
+from uuid import uuid4
+from pathlib import Path
+
+from app.db.connection import get_db
+from app.db.models.tenant import UserTenant
+from app.schemas.user_tenant import UserTenantCreate, UserTenantUpdate, UserTenantOut
+from app.core.security import get_password_hash
+from app.api.deps import get_current_user
+
+router = APIRouter()
+
+def get_schema_name(current_user: Any):
+    if isinstance(current_user, dict):
+        return current_user.get("schema_name")
+    return getattr(current_user, "schema_name", None)
+
+
+@router.get("/", response_model=list[UserTenantOut])
+def list_users(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    schema_name = get_schema_name(current_user)
+    if not schema_name:
+        raise HTTPException(400, "Tenant não identificado!")
+    db.execute(text(f"SET search_path TO {schema_name}"))
+    users = db.query(UserTenant).all()
+    db.execute(text("SET search_path TO public"))
+    return users
+
+# --- UPDATED PATCH: support JSON or multipart/form-data (with optional avatar_file) ---
+@router.post("/", response_model=UserTenantOut, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    request: Request,
+    avatar_file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    import logging, traceback
+    logger = logging.getLogger("uvicorn.error")
+
+    def to_bool(val):
+        if isinstance(val, bool):
+            return val
+        if val is None:
+            return False
+        if isinstance(val, (int, float)):
+            return bool(val)
+        s = str(val).strip().lower()
+        return s in ("1", "true", "yes", "on")
+
+    schema_name = get_schema_name(current_user)
+    if not schema_name:
+        raise HTTPException(400, "Tenant não identificado")
+
+    try:
+        db.execute(text(f'SET search_path TO "{schema_name}", public'))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao setar search_path: {e}")
+
+    try:
+        content_type = request.headers.get("content-type", "") or ""
+        if content_type.startswith("multipart/"):
+            form = await request.form()
+            # form is a Starlette FormData mapping; convert to simple dict of str values
+            data = {}
+            for k, v in form.multi_items():
+                # skip file-like entries (UploadFile)
+                if hasattr(v, "filename"):
+                    continue
+                data[k] = v
+        else:
+            # JSON path
+            try:
+                data = await request.json()
+                if data is None:
+                    data = {}
+            except Exception:
+                data = {}
+
+        # Fallbacks: accept 'full_name' or 'nome' for display name
+        nome = data.get("nome") or data.get("full_name") or None
+        username = data.get("username") or None
+        email = data.get("email") or None
+        password = data.get("password") or None
+
+        # Validate required fields
+        missing = []
+        if not nome:
+            missing.append("nome or full_name")
+        if not email:
+            missing.append("email")
+        if not password:
+            missing.append("password")
+        # username can be optional; fallback to part before @ if missing
+        if not username and email and "@" in email:
+            username = email.split("@")[0]
+
+        if missing:
+            raise HTTPException(status_code=422, detail=f"Campos obrigatórios ausentes: {', '.join(missing)}")
+
+        # Normalize username/email
+        if username and isinstance(username, str):
+            username = username.strip()
+        if email and isinstance(email, str):
+            email = email.strip().lower()
+
+        # Avatar handling (if provided via param avatar_file)
+        avatar_path = None
+        if avatar_file and getattr(avatar_file, "filename", None):
+            upload_dir = Path("uploads") / "avatars"
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            ext = os.path.splitext(avatar_file.filename)[1] or ".png"
+            safe_name = f"{schema_name}_{uuid4().hex}{ext}"
+            dest = upload_dir / safe_name
+            try:
+                avatar_file.file.seek(0)
+            except Exception:
+                pass
+            with open(dest, "wb") as buffer:
+                shutil.copyfileobj(avatar_file.file, buffer)
+            avatar_path = f"/uploads/avatars/{safe_name}"
+
+        # parse role fields
+        role_id = None
+        if data.get("role_id") is not None and str(data.get("role_id")).strip() != "":
+            try:
+                role_id = int(data.get("role_id"))
+            except Exception:
+                role_id = None
+
+        # support 'custom_role' (string) and also 'role' (string label) for flexibility
+        custom_role = data.get("custom_role") or data.get("role") or None
+        if isinstance(custom_role, str):
+            custom_role = custom_role.strip() or None
+
+        # If role_id is provided, validate that it exists in this tenant's roles_tenant
+        if role_id is not None:
+            try:
+                role_obj = db.query(RoleTenant).filter(RoleTenant.id == role_id).first()
+                if not role_obj:
+                    logger.warning("create_user: role_id %s não existe no schema %s - fallback para custom_role/null", role_id, schema_name)
+                    role_id = None
+                    if not custom_role and data.get("role") and data.get("role") != "other":
+                        custom_role = str(data.get("role")).strip() or None
+            except Exception:
+                logger.debug("create_user: validação de role_id falhou (roles_tenant possivelmente ausente)", exc_info=True)
+                role_id = None
+
+        # If frontend explicitly selected "other" without providing custom_role => error
+        if (data.get("role") == "other" or (role_id is None and data.get("role") == "other")) and not custom_role:
+            raise HTTPException(status_code=422, detail="custom_role é obrigatório quando 'Outros' é selecionado")
+
+        # Check duplicates (username/email) before insert to give friendly 409
+        try:
+            filters = []
+            if username:
+                filters.append(func.lower(UserTenant.username) == username.lower())
+            if email:
+                filters.append(func.lower(UserTenant.email) == email.lower())
+            existing = None
+            if filters:
+                existing = db.query(UserTenant).filter(or_(*filters)).first()
+            if existing:
+                conflict_fields = []
+                try:
+                    if username and existing.username and existing.username.lower() == username.lower():
+                        conflict_fields.append("username")
+                    if email and existing.email and existing.email.lower() == email.lower():
+                        conflict_fields.append("email")
+                except Exception:
+                    conflict_fields = ["username/email"]
+                raise HTTPException(status_code=409, detail=f"Já existe usuário com {', '.join(conflict_fields)} informado")
+        except HTTPException:
+            raise
+        except Exception:
+            # if something went wrong checking existing users, continue and rely on DB constraints to catch duplicates
+            logger.debug("create_user: falha ao checar duplicidade (continuando)", exc_info=True)
+
+        # create hashed password
+        hashed = get_password_hash(password)
+
+        user = UserTenant(
+            nome=nome,
+            username=username,
+            email=email,
+            hashed_password=hashed,
+            cpf=data.get("cpf") or None,
+            phone=data.get("phone") or None,
+            department=data.get("department") or None,
+            institution=data.get("institution") or None,
+            birth_date=data.get("birth_date") or None,
+            notes=data.get("notes") or None,
+            address=data.get("address") or None,
+            avatar_url=avatar_path or data.get("avatar_url"),
+            specialty=data.get("specialty") or None,
+            accepted_terms=to_bool(data.get("accepted_terms")),
+            is_active=to_bool(data.get("is_active")),
+            is_admin=to_bool(data.get("is_admin")),
+            role_id=role_id,
+            custom_role=custom_role,
+        )
+
+        db.add(user)
+        try:
+            db.commit()
+            db.refresh(user)
+            return user
+        except IntegrityError as ie:
+            db.rollback()
+            msg = str(getattr(ie, "orig", ie)).lower()
+            # try to locate existing user id to help frontend
+            existing = None
+            try:
+                lookup_filters = []
+                if username:
+                    lookup_filters.append(func.lower(UserTenant.username) == username.lower())
+                if email:
+                    lookup_filters.append(func.lower(UserTenant.email) == email.lower())
+                if lookup_filters:
+                    existing = db.query(UserTenant).filter(or_(*lookup_filters)).first()
+            except Exception:
+                existing = None
+
+            detail = "Violação de unicidade"
+            if "username" in msg or "user_tenant_username_key" in msg:
+                detail = "Username já cadastrado"
+            elif "email" in msg or "user_tenant_email_key" in msg:
+                detail = "Email já cadastrado"
+
+            content = {"detail": detail}
+            if existing and getattr(existing, "id", None):
+                content["existing_user_id"] = existing.id
+
+            return JSONResponse(status_code=409, content=content)
+        except Exception as e:
+            db.rollback()
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"Erro ao criar usuário: {e}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(traceback.format_exc())
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao criar usuário: {e}")
+    finally:
+        try:
+            db.execute(text('SET search_path TO public'))
+        except Exception:
+            pass
+
+
+async function handleSubmit(e: React.FormEvent) {
+  e.preventDefault();
+  setMessage(null);
+  setError(null);
+
+  // basic client-side validation for "other" role
+  if (form.role === "other") {
+    if (!(form.custom_role && form.custom_role.trim())) {
+      setError("Descreva o papel quando selecionar 'Outros'.");
+      return;
+    }
+  }
+
+  const payload: any = {
+    nome: form.full_name || form.nome || form.username || "",
+    username: form.username || undefined,
+    email: form.email || undefined,
+    password: form.password || undefined,
+    cpf: form.cpf || undefined,
+    phone: form.phone || undefined,
+    department: form.department || undefined,
+    institution: form.institution || undefined,
+    birth_date: form.birth_date || undefined,
+    notes: form.notes || undefined,
+    address: form.address || undefined,
+    specialty: form.specialty || undefined,
+    is_active: Boolean(form.is_active),
+    is_admin: Boolean(form.is_admin),
+    accepted_terms: Boolean(form.accepted_terms),
+  };
+
+  if (form.role === "other") {
+    payload.role_id = null;
+    payload.custom_role = (form.custom_role || "").trim() || null;
+  } else {
+    payload.role_id = form.role_id ?? 1;
+    payload.custom_role = null;
+  }
+
+  try {
+    if (editUser && editUser.id) {
+      // UPDATE existing user via PATCH
+      // If there's a file, use FormData to submit multipart; include other fields too
+      if (form.avatar_file) {
+        const fd = new FormData();
+        // include scalar fields you want to update (backend handles partial)
+        Object.keys(payload).forEach(k => {
+          const v = payload[k];
+          if (v !== undefined && v !== null) fd.append(k, String(v));
+        });
+        fd.append("avatar_file", form.avatar_file);
+        try {
+          const res = await api.patch(`/users/${editUser.id}`, fd, {
+            headers: { Authorization: `Bearer ${token}` }
+            // do NOT set Content-Type — let the browser/axios set boundary
+          });
+          setMessage("Usuário atualizado com sucesso!");
+          setForm({ ...initialForm });
+          setEditUser(null);
+          setOpen(false);
+          return;
+        } catch (err: any) {
+          // If backend returns 409 with existing_user_id, fallthrough to handler below
+          if (err?.response?.status === 409) {
+            const data = err.response.data || {};
+            const existingId = data.existing_user_id;
+            if (existingId && form.avatar_file) {
+              // try PATCH avatar to existing id
+              const afd = new FormData();
+              afd.append("avatar_file", form.avatar_file);
+              try {
+                await api.patch(`/users/${existingId}`, afd, {
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+                setMessage("Avatar atualizado do usuário existente.");
+                setOpen(false);
+                return;
+              } catch (patchErr) {
+                console.error("Falha ao atualizar avatar do usuário existente:", patchErr);
+                setError("Usuário já existe, falha ao atualizar avatar.");
+                return;
+              }
+            }
+            setError(data.detail || "Conflito ao atualizar usuário.");
+            return;
+          }
+          throw err;
+        }
+      } else {
+        // No file, plain JSON PATCH (partial update)
+        try {
+          const res = await api.patch(`/users/${editUser.id}`, payload, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setMessage("Usuário atualizado com sucesso!");
+          setForm({ ...initialForm });
+          setEditUser(null);
+          setOpen(false);
+          return;
+        } catch (err: any) {
+          if (err?.response?.status === 409) {
+            const data = err.response.data || {};
+            setError(data.detail || "Conflito ao atualizar usuário.");
+            return;
+          }
+          throw err;
+        }
+      }
+    } else {
+      // CREATE new user (POST)
+      const createRes = await api.post("/users/", payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // send avatar after creating, if present
+      if (form.avatar_file) {
+        const fd = new FormData();
+        fd.append("avatar_file", form.avatar_file);
+        try {
+          await api.patch(`/users/${createRes.data.id}`, fd, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        } catch (err) {
+          console.warn("Falha ao enviar avatar (mas usuário criado):", err);
+        }
+      }
+
+      setMessage('Usuário criado com sucesso!');
+      setForm({ ...initialForm });
+      setEditUser(null);
+      setOpen(false);
+    }
+  } catch (err: any) {
+    // handle 409 from create path (existing_user_id)
+    if (err?.response?.status === 409) {
+      const data = err.response.data || {};
+      const existingId = data.existing_user_id;
+      const detail = data.detail || "Conflito na criação";
+
+      if (existingId && form.avatar_file) {
+        const fd = new FormData();
+        fd.append("avatar_file", form.avatar_file);
+        try {
+          await api.patch(`/users/${existingId}`, fd, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setMessage("Avatar atualizado para o usuário existente. (Usuário já existia)");
+          setOpen(false);
+          return;
+        } catch (patchErr) {
+          console.error("Falha ao atualizar avatar do usuário existente:", patchErr);
+          setError("Usuário já existe, falha ao atualizar avatar.");
+          return;
+        }
+      }
+
+      setError(detail);
+      return;
+    }
+
+    const detail = extractErrorMessage(err);
+    setError(detail);
+    console.error("Erro salvar usuário (create/update):", err);
+  }
+}
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    schema_name = get_schema_name(current_user)
+    if not schema_name:
+        raise HTTPException(400, "Tenant não identificado!")
+    db.execute(text(f"SET search_path TO {schema_name}"))
+    user_obj = db.query(UserTenant).filter(UserTenant.id == user_id).first()
+    if not user_obj:
+        db.execute(text("SET search_path TO public"))
+        raise HTTPException(404, "Usuário não encontrado")
+    db.delete(user_obj)
+    db.commit()
+    db.execute(text("SET search_path TO public"))

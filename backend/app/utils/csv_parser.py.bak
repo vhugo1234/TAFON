@@ -1,0 +1,141 @@
+# -*- coding: utf-8 -*-
+# backend/app/utils/csv_parser.py
+# CSV parsing utilities (candidates import).
+# Notes:
+# - Detect delimiter (csv.Sniffer with fallback to comma/semicolon)
+# - Normalize CPF (NFKC + remove non-digits)
+# - CPF VALIDATION (digits-check) intentionally NOT performed here (accepted as requested)
+
+import csv
+import io
+import re
+import unicodedata
+from typing import Tuple, List, Dict, Any, Optional
+from fastapi import UploadFile
+
+def only_digits(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    try:
+        s_norm = unicodedata.normalize('NFKC', str(s))
+    except Exception:
+        s_norm = str(s)
+    return re.sub(r"\D", "", s_norm)
+
+def detect_delimiter(sample: str) -> str:
+    """
+    Detect delimiter using csv.Sniffer. Fallback to comma or semicolon heuristics.
+    """
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;|\t")
+        return dialect.delimiter
+    except Exception:
+        # fallback: count commas vs semicolons
+        comma_count = sample.count(',')
+        semicolon_count = sample.count(';')
+        if semicolon_count > comma_count:
+            return ';'
+        return ','
+
+# Expected headers (WITHOUT batch_name)
+EXPECTED_HEADERS = ['full_name', 'cpf', 'registration_number', 'gender']
+
+async def parse_candidates_csv(file: UploadFile) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Receive UploadFile (CSV) and return (valid_candidates, errors).
+    - Detect delimiter automatically
+    - Normalize CPF (digits only)
+    - CPF validation/check-digit intentionally not applied (per request)
+    - errors: list of {row_number:int, field:str, error:str}
+    """
+    content = await file.read()
+
+    # decode with fallbacks
+    text = None
+    for enc in ('utf-8-sig', 'utf-8', 'latin-1'):
+        try:
+            text = content.decode(enc)
+            used_encoding = enc
+            break
+        except Exception:
+            text = None
+    if text is None:
+        text = content.decode('latin-1', errors='replace')
+        used_encoding = 'latin-1 (replaced)'
+
+    # Build a small sample to detect delimiter
+    sample_lines = text.splitlines()[:20]
+    sample = '\n'.join(sample_lines) if sample_lines else text[:1024]
+    delimiter = detect_delimiter(sample)
+
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+    headers = [h.strip() for h in (reader.fieldnames or [])]
+
+    valid_candidates: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+
+    # Check required headers (case-sensitive as originally expected)
+    required = ['full_name', 'cpf', 'registration_number', 'gender']
+    missing_headers = [h for h in required if h not in headers]
+    if missing_headers:
+        errors.append({
+            'row_number': 0,
+            'field': 'header',
+            'error': f'Missing required columns: {missing_headers}. Detected headers: {headers}. Use the CSV sample.'
+        })
+        return valid_candidates, errors
+
+    row_number = 1
+    for row in reader:
+        row_number += 1
+        full_name = (row.get('full_name') or "").strip()
+        cpf_raw = row.get('cpf') or ""
+        cpf = only_digits(cpf_raw)
+        registration_number = (row.get('registration_number') or "").strip()
+        gender = (row.get('gender') or "").strip().upper()
+
+        # Mandatory validations (blocking)
+        if not full_name:
+            errors.append({'row_number': row_number, 'field': 'full_name', 'error': 'full_name missing'})
+            continue
+
+        if not cpf:
+            errors.append({'row_number': row_number, 'field': 'cpf', 'error': 'cpf missing'})
+            continue
+
+        if not registration_number:
+            errors.append({'row_number': row_number, 'field': 'registration_number', 'error': 'registration_number missing'})
+            continue
+
+        if gender not in ('M', 'F'):
+            errors.append({'row_number': row_number, 'field': 'gender', 'error': f"Invalid gender: '{gender}'. Use 'M' or 'F'."})
+            continue
+
+        candidate_obj = {
+            'full_name': full_name,
+            'cpf': cpf,
+            'registration_number': registration_number,
+            'gender': gender,
+        }
+
+        # keep optional batch_name if provided in the CSV
+        if 'batch_name' in row:
+            bn = row.get('batch_name') or ''
+            if bn and str(bn).strip() != '':
+                candidate_obj['batch_name'] = str(bn).strip()
+
+        valid_candidates.append(candidate_obj)
+
+    return valid_candidates, errors
+
+def generate_sample_csv() -> str:
+    """
+    Generate sample CSV WITHOUT batch_name column.
+    """
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['full_name', 'cpf', 'registration_number', 'gender'])
+    writer.writerow(['Joao Silva', '52998224725', '1001', 'M'])
+    writer.writerow(['Maria Souza', '39833144820', '1002', 'F'])
+    writer.writerow(['Carlos Pereira', '11144477735', '1003', 'M'])
+    return output.getvalue()

@@ -1,0 +1,491 @@
+// frontend/src/pages/TAFCandidatesPage.tsx
+
+import React, { useEffect, useState } from 'react';
+import {
+  Container, Typography, Box, Button, Grid, Dialog, DialogTitle,
+  DialogContent, DialogActions, TextField, Stack, Alert, CircularProgress,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, Chip, IconButton, MenuItem, Pagination, InputAdornment, Tooltip
+} from '@mui/material';
+import {
+  Add, Edit, Delete, Upload, CloudUpload, Download, People,
+  Male, Female, Search, ArrowBack, Refresh
+} from '@mui/icons-material';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate, useParams } from 'react-router-dom';
+import api from '../lib/api';
+
+interface Candidate {
+  id: number;
+  full_name: string;
+  cpf: string;
+  registration_number: string;
+  gender: 'M' | 'F';
+  batch_name: string | null;
+  has_results: boolean;
+}
+
+export default function TAFCandidatesPage() {
+  const { token } = useAuth();
+  const navigate = useNavigate();
+  const { eventId } = useParams<{ eventId: string }>();
+
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [eventName, setEventName] = useState('');
+
+  // Filtros e Paginação
+  const [search, setSearch] = useState('');
+  const [genderFilter, setGenderFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
+
+  // Upload
+  const [uploading, setUploading] = useState(false);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (eventId) {
+      loadEventData();
+      loadCandidates();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, page, search, genderFilter]);
+
+  const loadEventData = async () => {
+    try {
+      const response = await api.get(`/taf/events/${eventId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setEventName(response.data.name);
+    } catch (err) {
+      console.error('Erro ao carregar evento:', err);
+    }
+  };
+
+  const loadCandidates = async () => {
+    try {
+      setLoading(true);
+      const params: any = { page, page_size: pageSize };
+      if (search) params.search = search;
+      if (genderFilter) params.gender = genderFilter;
+
+      const response = await api.get(`/taf/candidates/by-event/${eventId}`, {
+        params,
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setCandidates(response.data.items || []);
+      setTotal(response.data.total || 0);
+    } catch (err: any) {
+      setError(normalizeError(err, 'Erro ao carregar candidatos'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      setSelectedFile(event.target.files[0]);
+    } else {
+      setSelectedFile(null);
+    }
+  };
+
+  // ---------- Helpers para CPF ----------
+  function onlyDigits(s: string | null | undefined): string {
+    return (s || '').replace(/\D/g, '');
+  }
+
+  function isValidCPF(cpfRaw: string | null | undefined): boolean {
+    const cpf = onlyDigits(cpfRaw);
+    if (!cpf || cpf.length !== 11) return false;
+    if (/^(\d)\1{10}$/.test(cpf)) return false;
+
+    const calc = (t: number) => {
+      let sum = 0;
+      for (let i = 0; i < t - 1; i++) {
+        sum += parseInt(cpf[i], 10) * (t - i);
+      }
+      const d = 11 - (sum % 11);
+      return d >= 10 ? 0 : d;
+    };
+
+    const d1 = calc(10);
+    const d2 = calc(11);
+    return d1 === parseInt(cpf[9], 10) && d2 === parseInt(cpf[10], 10);
+  }
+
+  // ---------- handleUpload (usa axios 'api' para multipart/form-data) ----------
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+
+    setUploading(true);
+    setError(null);
+    setSuccess(null);
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      // 1) Preview
+      const previewResp = await api.post(
+        '/taf/candidates/upload-preview',
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      const preview = previewResp.data;
+
+      const invalidRows = preview.invalid_rows ?? 0;
+      const validRows = preview.valid_rows ?? 0;
+
+      // Aviso se sample contains batch_name (we will ignore it)
+      const sampleHasBatch = Array.isArray(preview.sample_data) && preview.sample_data.some((r: any) => r && Object.prototype.hasOwnProperty.call(r, 'batch_name'));
+      if (sampleHasBatch) {
+        alert("Observação: coluna 'batch_name' presente no CSV será ignorada durante a importação. Turmas serão atribuídas após o agrupamento.");
+      }
+
+      if (invalidRows > 0 && validRows === 0) {
+        setError(`Arquivo processado: ${invalidRows} linhas inválidas. Corrija o arquivo e tente novamente.`);
+        setUploading(false);
+        return;
+      }
+
+      // select candidates to import: prefer valid_candidates, fallback to sample_data
+      let candidatesToImport: any[] = preview.valid_candidates ?? preview.valid_rows_list ?? preview.sample_data ?? [];
+
+      if ((!Array.isArray(candidatesToImport) || candidatesToImport.length === 0) && Array.isArray(preview.sample_data) && preview.sample_data.length > 0) {
+        const confirmSample = window.confirm(
+          `Foram encontradas ${validRows} linhas válidas, mas o servidor retornou apenas uma amostra de ${preview.sample_data.length} itens.\n` +
+          `Deseja importar apenas a amostra mostrada?`
+        );
+        if (!confirmSample) {
+          setUploading(false);
+          return;
+        }
+        candidatesToImport = preview.sample_data;
+      }
+
+      // Normalize and validate CPF client-side: remove non-digits, validate algorithm
+      const normalized = (candidatesToImport || []).map((c: any, idx: number) => {
+        const cpf = onlyDigits(c?.cpf ?? '');
+        return { ...c, cpf, __row_index: c?.row_number ?? idx + 1 };
+      });
+
+      const validList: any[] = [];
+      const invalidList: { row: number; reason: string; raw?: any }[] = [];
+
+      normalized.forEach((c: any) => {
+        if (!isValidCPF(c.cpf)) {
+          invalidList.push({ row: c.__row_index ?? -1, reason: `CPF inválido: ${c.cpf}`, raw: c });
+        } else {
+          validList.push(c);
+        }
+      });
+
+      if (validList.length === 0) {
+        setError(`Nenhuma linha válida para importação. ${invalidList.length} linhas com CPF inválido.`);
+        setUploading(false);
+        return;
+      }
+
+      if (invalidList.length > 0) {
+        const proceed = window.confirm(
+          `Foram encontradas ${invalidList.length} linhas com CPF inválido (ex.: ${invalidList.slice(0,3).map(x => x.reason).join('; ')}).\n` +
+          `Deseja continuar importando as ${validList.length} linhas válidas?`
+        );
+        if (!proceed) {
+          setUploading(false);
+          return;
+        }
+      }
+
+      // Remove batch_name and helper fields before sending
+      const cleanedCandidates = validList.map(({ batch_name, __row_index, row_number, ...rest }: any) => rest);
+
+      // 2) Bulk import
+      const bulkPayload = {
+        event_id: Number(eventId),
+        candidates: cleanedCandidates,
+        skip_duplicates: true
+      };
+
+      const importResponse = await api.post('/taf/candidates/bulk-import', bulkPayload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const result = importResponse.data;
+      setSuccess(result.message ?? 'Importação concluída.');
+      setUploadDialogOpen(false);
+      setSelectedFile(null);
+      loadCandidates();
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err: any) {
+      console.error('Erro no upload/import:', err);
+      setError(normalizeError(err, 'Erro ao importar candidatos'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDownloadSample = async () => {
+    try {
+      const response = await api.get('/taf/candidates/sample-csv/download', {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'text'
+      });
+
+      const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'modelo_candidatos.csv';
+      link.click();
+    } catch (err) {
+      console.error('Erro ao baixar modelo:', err);
+    }
+  };
+
+  const handleDelete = async (candidate: Candidate) => {
+    if (!window.confirm(`Excluir candidato ${candidate.full_name}?`)) return;
+
+    try {
+      await api.delete(`/taf/candidates/${candidate.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuccess('Candidato excluído com sucesso!');
+      loadCandidates();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(normalizeError(err, 'Erro ao excluir candidato'));
+    }
+  };
+
+  // ---------- Helpers ----------
+  function normalizeError(err: any, fallback = 'Erro inesperado') {
+    try {
+      const respData = err?.response?.data;
+      if (!respData) return String(err?.message ?? fallback);
+
+      if (Array.isArray(respData.detail)) {
+        return respData.detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ');
+      }
+
+      if (typeof respData.detail === 'string') {
+        return respData.detail;
+      }
+
+      if (typeof respData === 'object') {
+        if (respData.message) return String(respData.message);
+        if (respData.error) return String(respData.error);
+        return JSON.stringify(respData);
+      }
+
+      return String(respData);
+    } catch (e) {
+      return String(err?.message ?? fallback);
+    }
+  }
+
+  return (
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      {/* Cabeçalho */}
+      <Box sx={{ mb: 4 }}>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <IconButton onClick={() => navigate('/taf/events')}>
+            <ArrowBack />
+          </IconButton>
+          <Box>
+            <Typography variant="h3" fontWeight={700}>
+              Candidatos
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              {eventName}
+            </Typography>
+          </Box>
+        </Stack>
+
+        <Stack direction="row" spacing={2}>
+          <Button
+            variant="contained"
+            startIcon={<CloudUpload />}
+            onClick={() => setUploadDialogOpen(true)}
+          >
+            Importar CSV
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<Download />}
+            onClick={handleDownloadSample}
+          >
+            Baixar Modelo
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<People />}
+            onClick={() => navigate(`/taf/events/${eventId}/grouping`)}
+          >
+            Agrupar em Turmas
+          </Button>
+        </Stack>
+      </Box>
+
+      {/* Alertas (garantir string) */}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{String(error)}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{String(success)}</Alert>}
+
+      {/* Filtros */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Stack direction="row" spacing={2}>
+          <TextField
+            placeholder="Buscar por nome, CPF ou inscrição..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            size="small"
+            fullWidth
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><Search /></InputAdornment>
+            }}
+          />
+          <TextField
+            select
+            label="Sexo"
+            value={genderFilter ?? ''}
+            onChange={(e) => setGenderFilter(e.target.value)}
+            size="small"
+            sx={{ minWidth: 150 }}
+          >
+            <MenuItem value="">Todos</MenuItem>
+            <MenuItem value="M">Masculino</MenuItem>
+            <MenuItem value="F">Feminino</MenuItem>
+          </TextField>
+          <IconButton onClick={loadCandidates}>
+            <Refresh />
+          </IconButton>
+        </Stack>
+      </Paper>
+
+      {/* Tabela */}
+      {loading ? (
+        <Box display="flex" justifyContent="center" py={8}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <>
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Inscrição</TableCell>
+                  <TableCell>Nome</TableCell>
+                  <TableCell>CPF</TableCell>
+                  <TableCell>Sexo</TableCell>
+                  <TableCell>Turma</TableCell>
+                  <TableCell align="right">Ações</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {candidates.map((candidate) => (
+                  <TableRow key={candidate.id}>
+                    <TableCell>{candidate.registration_number}</TableCell>
+                    <TableCell>{candidate.full_name}</TableCell>
+                    <TableCell>{candidate.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}</TableCell>
+                    <TableCell>
+                      <Chip
+                        icon={candidate.gender === 'M' ? <Male /> : <Female />}
+                        label={candidate.gender === 'M' ? 'M' : 'F'}
+                        size="small"
+                        color={candidate.gender === 'M' ? 'primary' : 'secondary'}
+                      />
+                    </TableCell>
+                    <TableCell>{candidate.batch_name || '-'}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Excluir">
+                        <IconButton size="small" color="error" onClick={() => handleDelete(candidate)}>
+                          <Delete />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {total > pageSize && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+              <Pagination
+                count={Math.ceil(total / pageSize)}
+                page={page}
+                onChange={(_, value) => setPage(value)}
+                color="primary"
+              />
+            </Box>
+          )}
+        </>
+      )}
+
+      {/* Dialog de Upload */}
+      <Dialog open={uploadDialogOpen} onClose={() => setUploadDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Importar Candidatos via CSV</DialogTitle>
+        <DialogContent>
+          <Stack spacing={3} sx={{ mt: 1 }}>
+            <Alert severity="info">
+              Baixe o modelo CSV e preencha com os dados dos candidatos. Observação: coluna 'batch_name' (turma) será ignorada na importação; turmas são definidas após o agrupamento.
+            </Alert>
+
+            <Button
+              variant="outlined"
+              startIcon={<Download />}
+              onClick={handleDownloadSample}
+              fullWidth
+            >
+              Baixar Modelo CSV
+            </Button>
+
+            <Box>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+                id="csv-upload"
+              />
+              <label htmlFor="csv-upload">
+                <Button
+                  variant="contained"
+                  component="span"
+                  startIcon={<Upload />}
+                  fullWidth
+                >
+                  {selectedFile ? selectedFile.name : 'Selecionar Arquivo CSV'}
+                </Button>
+              </label>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => setUploadDialogOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={handleUpload}
+            disabled={!selectedFile || uploading}
+            startIcon={uploading ? <CircularProgress size={20} /> : <CloudUpload />}
+          >
+            Importar
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Container>
+  );
+}

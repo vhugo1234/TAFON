@@ -1,0 +1,630 @@
+﻿// frontend/src/pages/TAFExercisesPage.tsx
+
+import React, { useEffect, useState } from 'react';
+import {
+  Container, Typography, Box, Button, Grid, Card, CardContent, CardActions,
+  Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
+  TextField, Stack, Alert, CircularProgress, MenuItem, Divider,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, Tooltip, useTheme
+} from '@mui/material';
+import {
+  Add, Edit, Delete, ArrowBack, FitnessCenter, Rule, Male, Female
+} from '@mui/icons-material';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate, useParams } from 'react-router-dom';
+import api from '../lib/api';
+
+interface Exercise {
+  id: number;
+  name: string;
+  unit_of_measure: string;
+  max_attempts: number;
+  event_id: number;
+  total_criteria: number;
+}
+
+interface PassCriteria {
+  id: number;
+  exercise_id: number;
+  gender: 'M' | 'F';
+  min_value: number;
+  max_time_s: number | null;
+}
+
+interface ExerciseForm {
+  name: string;
+  unit_of_measure: string;
+  max_attempts: number;
+}
+
+const initialExerciseForm: ExerciseForm = {
+  name: '',
+  unit_of_measure: '',
+  max_attempts: 1
+};
+
+interface CriteriaForm {
+  gender: 'M' | 'F';
+  min_value: number;
+  max_time_s: number | null;
+}
+
+const initialCriteriaForm: CriteriaForm = {
+  gender: 'M',
+  min_value: 0,
+  max_time_s: null
+};
+
+export default function TAFExercisesPage() {
+  const theme = useTheme();
+  const { token } = useAuth();
+  const navigate = useNavigate();
+  const { eventId } = useParams<{ eventId: string }>();
+
+  // Estados
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [criteria, setCriteria] = useState<PassCriteria[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [eventName, setEventName] = useState<string>('');
+
+  // Modais
+  const [openExerciseModal, setOpenExerciseModal] = useState(false);
+  const [openCriteriaModal, setOpenCriteriaModal] = useState(false);
+  const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
+  const [editingCriteria, setEditingCriteria] = useState<PassCriteria | null>(null);
+
+  // Formulários
+  const [exerciseForm, setExerciseForm] = useState<ExerciseForm>(initialExerciseForm);
+  const [criteriaForm, setCriteriaForm] = useState<CriteriaForm>(initialCriteriaForm);
+
+  // Carregar dados
+  useEffect(() => {
+    if (eventId) {
+      loadEventData();
+      loadExercises();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, token]);
+
+  const loadEventData = async () => {
+    try {
+      const response = await api.get(`/taf/events/${eventId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setEventName(response.data.name);
+    } catch (err) {
+      console.error('Erro ao carregar evento:', err);
+    }
+  };
+
+  const loadExercises = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await api.get(`/taf/exercises/by-event/${eventId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setExercises(response.data || []);
+    } catch (err: any) {
+      console.error('Erro ao carregar exercícios:', err);
+      setError(String(err?.response?.data?.detail || 'Erro ao carregar exercícios'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadCriteria = async (exerciseId: number) => {
+    try {
+      const response = await api.get(`/taf/exercises/${exerciseId}/criteria`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setCriteria(response.data || []);
+    } catch (err: any) {
+      console.error('Erro ao carregar critérios:', err);
+      setError(String(err?.response?.data?.detail || 'Erro ao carregar critérios'));
+    }
+  };
+
+  // Handlers de Exercícios
+  const handleOpenCreateExercise = () => {
+    setExerciseForm(initialExerciseForm);
+    setEditingExercise(null);
+    setOpenExerciseModal(true);
+  };
+
+  const handleOpenEditExercise = (exercise: Exercise) => {
+    setExerciseForm({
+      name: exercise.name,
+      unit_of_measure: exercise.unit_of_measure,
+      max_attempts: exercise.max_attempts
+    });
+    setEditingExercise(exercise);
+    setOpenExerciseModal(true);
+  };
+
+  const handleSubmitExercise = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      if (editingExercise) {
+        await api.patch(`/taf/exercises/${editingExercise.id}`, exerciseForm, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setSuccess('Exercício atualizado com sucesso!');
+      } else {
+        await api.post('/taf/exercises/', { ...exerciseForm, event_id: Number(eventId) }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setSuccess('Exercício criado com sucesso!');
+      }
+
+      setOpenExerciseModal(false);
+      loadExercises();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      console.error('Erro ao salvar exercício:', err);
+      setError(String(err?.response?.data?.detail || 'Erro ao salvar exercício'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteExercise = async (exercise: Exercise) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o exercício "${exercise.name}"?\n\nISSO TAMBÉM DELETARÁ TODOS OS CRITÉRIOS E RESULTADOS RELACIONADOS!`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/taf/exercises/${exercise.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuccess('Exercício deletado com sucesso!');
+      loadExercises();
+      if (selectedExercise?.id === exercise.id) {
+        setSelectedExercise(null);
+        setCriteria([]);
+      }
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      console.error('Erro ao deletar exercício:', err);
+      setError(String(err?.response?.data?.detail || 'Erro ao deletar exercício'));
+    }
+  };
+
+  // Handlers de Critérios
+  const handleSelectExercise = (exercise: Exercise) => {
+    setSelectedExercise(exercise);
+    loadCriteria(exercise.id);
+  };
+
+  const handleOpenCreateCriteria = () => {
+    setCriteriaForm(initialCriteriaForm);
+    setEditingCriteria(null);
+    setOpenCriteriaModal(true);
+  };
+
+  const handleOpenEditCriteria = (criterion: PassCriteria) => {
+    setCriteriaForm({
+      gender: criterion.gender,
+      min_value: criterion.min_value,
+      max_time_s: criterion.max_time_s
+    });
+    setEditingCriteria(criterion);
+    setOpenCriteriaModal(true);
+  };
+
+  const handleSubmitCriteria = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedExercise) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      if (editingCriteria) {
+        await api.patch(`/taf/exercises/criteria/${editingCriteria.id}`, criteriaForm, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setSuccess('Critério atualizado com sucesso!');
+      } else {
+        const payload = {
+          ...criteriaForm,
+          exercise_id: selectedExercise.id
+        };
+        await api.post(`/taf/exercises/${selectedExercise.id}/criteria`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setSuccess('Critério criado com sucesso!');
+      }
+
+      setOpenCriteriaModal(false);
+      loadCriteria(selectedExercise.id);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      console.error('Erro ao salvar critério:', err);
+
+      const respData = err?.response?.data;
+      let message = err?.message ?? 'Erro ao salvar critério';
+      if (respData) {
+        if (Array.isArray(respData.detail)) {
+          message = respData.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
+        } else if (typeof respData.detail === 'string') {
+          message = respData.detail;
+        } else {
+          message = JSON.stringify(respData);
+        }
+      }
+
+      setError(String(message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteCriteria = async (criterion: PassCriteria) => {
+    if (!window.confirm('Tem certeza que deseja excluir este critério?')) {
+      return;
+    }
+
+    try {
+      await api.delete(`/taf/exercises/criteria/${criterion.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuccess('Critério deletado com sucesso!');
+      if (selectedExercise) {
+        loadCriteria(selectedExercise.id);
+      }
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      console.error('Erro ao deletar critério:', err);
+      setError(String(err?.response?.data?.detail || 'Erro ao deletar critério'));
+    }
+  };
+
+  return (
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      {/* Cabeçalho */}
+      <Box sx={{ mb: 4 }}>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <IconButton onClick={() => navigate('/taf/events')}>
+            <ArrowBack />
+          </IconButton>
+          <Box>
+            <Typography variant="h3" component="h1" fontWeight={700}>
+              <FitnessCenter sx={{ verticalAlign: 'middle', mr: 1 }} /> Exercícios TAF
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              {eventName ? `Evento: ${eventName}` : 'Carregando...'}
+            </Typography>
+          </Box>
+        </Stack>
+
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={<Add />}
+          onClick={handleOpenCreateExercise}
+        >
+          Novo Exercício
+        </Button>
+      </Box>
+
+      {/* Alertas */}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
+
+      {/* Loading */}
+      {loading && (
+        <Box display="flex" justifyContent="center" py={8}>
+          <CircularProgress size={60} />
+        </Box>
+      )}
+
+      {/* Layout Principal */}
+      {!loading && (
+        <Grid container spacing={3}>
+          {/* Lista de Exercícios */}
+          <Grid item xs={12} md={4}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom fontWeight={600}>
+                Lista de Exercícios
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+
+              {exercises.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <FitnessCenter sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
+                  <Typography variant="body2" color="text.secondary">
+                    Nenhum exercício cadastrado
+                  </Typography>
+                </Box>
+              ) : (
+                <Stack spacing={1}>
+                  {exercises.map((exercise) => (
+                    <Card
+                      key={exercise.id}
+                      sx={{
+                        cursor: 'pointer',
+                        border: selectedExercise?.id === exercise.id ? 2 : 1,
+                        borderColor: selectedExercise?.id === exercise.id ? 'primary.main' : 'divider',
+                        '&:hover': {
+                          boxShadow: 3
+                        }
+                      }}
+                      onClick={() => handleSelectExercise(exercise)}
+                    >
+                      <CardContent>
+                        <Stack direction="row" justifyContent="space-between" alignItems="start">
+                          <Box>
+                            <Typography variant="subtitle1" fontWeight={600}>
+                              {exercise.name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {exercise.unit_of_measure} • {exercise.max_attempts} tentativa(s)
+                            </Typography>
+                            <Box sx={{ mt: 1 }}>
+                              <Stack direction="row" spacing={1}>
+                                <Chip
+                                  size="small"
+                                  icon={<Rule />}
+                                  label={`${exercise.total_criteria} critérios`}
+                                  variant="outlined"
+                                />
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/taf/events/${eventId}/exercises/${exercise.id}/launch`);
+                                  }}
+                                >
+                                  Lançar Notas
+                                </Button>
+                              </Stack>
+                            </Box>
+                          </Box>
+                          <Stack direction="row" spacing={0.5}>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenEditExercise(exercise);
+                              }}
+                            >
+                              <Edit fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteExercise(exercise);
+                              }}
+                            >
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Stack>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Stack>
+              )}
+            </Paper>
+          </Grid>
+
+          {/* Critérios de Aprovação */}
+          <Grid item xs={12} md={8}>
+            {selectedExercise ? (
+              <Paper sx={{ p: 3 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
+                  <Typography variant="h6" fontWeight={600}>
+                    Critérios de Aprovação - {selectedExercise.name}
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<Add />}
+                    onClick={handleOpenCreateCriteria}
+                  >
+                    Adicionar Critério
+                  </Button>
+                </Stack>
+
+                {criteria.length === 0 ? (
+                  <Box sx={{ textAlign: 'center', py: 8 }}>
+                    <Rule sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
+                    <Typography variant="body1" color="text.secondary" gutterBottom>
+                      Nenhum critério cadastrado
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                      Adicione critérios de aprovação por sexo
+                    </Typography>
+                    <Button variant="contained" startIcon={<Add />} onClick={handleOpenCreateCriteria}>
+                      Adicionar Primeiro Critério
+                    </Button>
+                  </Box>
+                ) : (
+                  <TableContainer>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Sexo</TableCell>
+                          <TableCell>Valor Mínimo</TableCell>
+                          <TableCell>Tempo Máximo (s)</TableCell>
+                          <TableCell align="right">Ações</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {criteria.map((criterion) => (
+                          <TableRow key={criterion.id}>
+                            <TableCell>
+                              <Chip
+                                icon={criterion.gender === 'M' ? <Male /> : <Female />}
+                                label={criterion.gender === 'M' ? 'Masculino' : 'Feminino'}
+                                color={criterion.gender === 'M' ? 'primary' : 'secondary'}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell>{criterion.min_value}</TableCell>
+                            <TableCell>{criterion.max_time_s ?? '-'}</TableCell>
+                            <TableCell align="right">
+                              <IconButton size="small" onClick={() => handleOpenEditCriteria(criterion)}>
+                                <Edit fontSize="small" />
+                              </IconButton>
+                              <IconButton size="small" color="error" onClick={() => handleDeleteCriteria(criterion)}>
+                                <Delete fontSize="small" />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Paper>
+            ) : (
+              <Paper sx={{ p: 8, textAlign: 'center' }}>
+                <FitnessCenter sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary">
+                  Selecione um exercício
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Clique em um exercício à esquerda para gerenciar seus critérios de aprovação
+                </Typography>
+              </Paper>
+            )}
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Modal de Exercício */}
+      <Dialog open={openExerciseModal} onClose={() => setOpenExerciseModal(false)} maxWidth="sm" fullWidth>
+        <form onSubmit={handleSubmitExercise}>
+          <DialogTitle>
+            {editingExercise ? 'Editar Exercício' : 'Novo Exercício'}
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={3} sx={{ mt: 1 }}>
+              <TextField
+                label="Nome do Exercício *"
+                value={exerciseForm.name}
+                onChange={(e) => setExerciseForm({ ...exerciseForm, name: e.target.value })}
+                fullWidth
+                required
+                placeholder="Ex: Corrida 12 minutos"
+              />
+
+              <TextField
+                label="Unidade de Medida *"
+                value={exerciseForm.unit_of_measure}
+                onChange={(e) => setExerciseForm({ ...exerciseForm, unit_of_measure: e.target.value })}
+                fullWidth
+                required
+                placeholder="Ex: metros, repetições, segundos"
+              />
+
+              <TextField
+                label="Máximo de Tentativas *"
+                type="number"
+                value={exerciseForm.max_attempts}
+                onChange={(e) => setExerciseForm({ ...exerciseForm, max_attempts: parseInt(e.target.value) })}
+                fullWidth
+                required
+                inputProps={{ min: 1, max: 5 }}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3 }}>
+            <Button onClick={() => setOpenExerciseModal(false)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={saving}
+              startIcon={saving ? <CircularProgress size={20} /> : null}
+            >
+              {editingExercise ? 'Atualizar' : 'Criar'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Modal de Critério */}
+      <Dialog open={openCriteriaModal} onClose={() => setOpenCriteriaModal(false)} maxWidth="sm" fullWidth>
+        <form onSubmit={handleSubmitCriteria}>
+          <DialogTitle>
+            {editingCriteria ? 'Editar Critério' : 'Novo Critério de Aprovação'}
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={3} sx={{ mt: 1 }}>
+              <TextField
+                label="Sexo *"
+                select
+                value={criteriaForm.gender}
+                onChange={(e) => setCriteriaForm({ ...criteriaForm, gender: e.target.value as 'M' | 'F' })}
+                fullWidth
+                required
+              >
+                <MenuItem value="M">
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Male /> <span>Masculino</span>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="F">
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Female /> <span>Feminino</span>
+                  </Stack>
+                </MenuItem>
+              </TextField>
+
+              <TextField
+                label="Valor Mínimo para Aprovação *"
+                type="number"
+                value={criteriaForm.min_value}
+                onChange={(e) => setCriteriaForm({ ...criteriaForm, min_value: parseFloat(e.target.value) })}
+                fullWidth
+                required
+                inputProps={{ step: 0.01 }}
+                helperText={selectedExercise ? `Em ${selectedExercise.unit_of_measure}` : ''}
+              />
+
+              <TextField
+                label="Tempo Máximo (segundos)"
+                type="number"
+                value={criteriaForm.max_time_s || ''}
+                onChange={(e) => setCriteriaForm({ ...criteriaForm, max_time_s: e.target.value ? parseInt(e.target.value) : null })}
+                fullWidth
+                helperText="Opcional - Para exercícios com limite de tempo"
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3 }}>
+            <Button onClick={() => setOpenCriteriaModal(false)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={saving}
+              startIcon={saving ? <CircularProgress size={20} /> : null}
+            >
+              {editingCriteria ? 'Atualizar' : 'Criar'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+    </Container>
+  );
+}

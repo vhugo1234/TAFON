@@ -137,7 +137,7 @@ export default function LoginPage() {
 
             <Box sx={{ mt: 3, textAlign: "center" }}>
               <Typography variant="caption" color="text.secondary">
-                © {new Date().getFullYear()} StockWise - Todos os direitos reservados.
+                © {new Date().getFullYear()} TAF ON - Todos os direitos reservados.
               </Typography>
             </Box>
           </Paper>

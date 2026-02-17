@@ -1,22 +1,50 @@
 # backend/app/api/v1/endpoints/exercises_taf.py
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy import func
+import logging
 
 # 1. Dependência de Multi-Tenancy
-from app.api.deps_tenant import get_tenant_db_session 
+from app.api.deps_tenant import get_tenant_db_session
 
 # 2. Modelos e Schemas
-from app.db.models.tenant import Event, Exercise, PassCriteria
+from app.db.models.tenant import Event, Exercise, PassCriteria, ExerciseEvaluator
 from app.schemas.exercise_schema import (
     ExerciseCreate, ExerciseUpdate, ExerciseOut, ExerciseWithCriteria,
     PassCriteriaCreate, PassCriteriaUpdate, PassCriteriaOut
 )
 
+# Usar utilitários centrais de segurança para JWT
+from app.core import security
+
 router = APIRouter(tags=["TAF - Módulo 2: Exercícios"])
+
+logger = logging.getLogger(__name__)
+
+# Helper: decodifica token e retorna claims (silencioso em falha)
+def _decode_token_get_claims(authorization: Optional[str]):
+    """
+    Decodifica Authorization: Bearer <token> e retorna claims dict.
+    Retorna {} em caso de header ausente ou falha ao decodificar.
+    Usa utilitário central security.decode_access_token para consistência.
+    """
+    if not authorization:
+        return {}
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return {}
+    token = parts[1]
+    try:
+        payload = security.decode_access_token(token)  # retorna dict ou None
+        return payload or {}
+    except Exception as e:
+        # Não propagar exceção — apenas logar em debug para investigação
+        logger.debug("Falha ao decodificar token JWT: %s", e)
+        return {}
+
 
 # =============================================================================
 # ROTAS DE EXERCÍCIOS
@@ -126,25 +154,77 @@ def create_exercise(
 @router.get("/by-event/{event_id}", response_model=List[ExerciseOut])
 def list_exercises_by_event(
     event_id: int,
-    db: Session = Depends(get_tenant_db_session)
+    db: Session = Depends(get_tenant_db_session),
+    authorization: Optional[str] = Header(None),
 ):
-    """Lista todos os Exercícios de um Evento específico."""
+    """
+    Lista Exercícios de um evento:
+    - admins/superusers: vêem todos os exercícios do evento
+    - avaliadores: SÓ vêem os exercícios aos quais estão vinculados
+    - outros: vêem todos (comportamento antigo)
+    """
     # Verifica se o evento existe
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Evento não encontrado."
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento não encontrado.")
+
+    # Decodifica claims do token (silencioso)
+    claims = _decode_token_get_claims(authorization)
+    # Extrações comuns (compatibiliza diferentes formatos de token)
+    user_id = claims.get("user_id") or claims.get("sub") or claims.get("usuario_id") or claims.get("user") or None
+    # role pode vir como 'role' (string), 'roles' (lista) ou 'role_id' (numérico)
+    role_claim = claims.get("role") or None
+    roles_claim = claims.get("roles") or []
+    role_id_claim = claims.get("role_id") or claims.get("roleId") or None
+    is_superuser = claims.get("is_superuser") or False
+    is_admin = claims.get("is_admin") or False
+
+    # Caso admin/superuser: retorna todos os exercícios do evento
+    if is_superuser or is_admin:
+        exercises = db.query(Exercise).filter(Exercise.event_id == event_id).order_by(Exercise.id.desc()).all()
+        for e in exercises:
+            e.total_criteria = db.query(func.count(PassCriteria.id)).filter(PassCriteria.exercise_id == e.id).scalar() or 0
+        return exercises
+
+    # Determina se o usuário é avaliador por claims:
+    # - roles listando "AVALIADOR_EF" ou
+    # - role string igual a "AVALIADOR_EF" (case-insensitive) ou
+    # - role_id numérico igual ao id que representa avaliador (ex: 4)
+    is_evaluator = False
+    try:
+        if isinstance(roles_claim, (list, tuple)) and any(str(r).upper() == "AVALIADOR_EF" for r in roles_claim):
+            is_evaluator = True
+        elif isinstance(role_claim, str) and role_claim.upper() == "AVALIADOR_EF":
+            is_evaluator = True
+        elif role_id_claim is not None and int(role_id_claim) == 4:  # ajuste o 4 se seu role_id for outro
+            is_evaluator = True
+    except Exception:
+        is_evaluator = False
+
+    # Se for avaliador: retornar SOMENTE exercícios vinculados a este avaliador
+    if is_evaluator:
+        if not user_id:
+            # sem user_id no token, negar / informar
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não identificado no token")
+        # buscar os exercises vinculados
+        assigned_q = (
+            db.query(Exercise)
+            .join(ExerciseEvaluator, Exercise.id == ExerciseEvaluator.exercise_id)
+            .filter(
+                Exercise.event_id == event_id,
+                ExerciseEvaluator.evaluator_user_id == int(user_id)
+            )
+            .order_by(Exercise.id.desc())
         )
-    
-    exercises = db.query(Exercise).filter(Exercise.event_id == event_id).all()
-    
-    # Adiciona contador de critérios para cada exercício
-    for exercise in exercises:
-        exercise.total_criteria = db.query(func.count(PassCriteria.id)).filter(
-            PassCriteria.exercise_id == exercise.id
-        ).scalar() or 0
-    
+        assigned_exercises = assigned_q.all()
+        for e in assigned_exercises:
+            e.total_criteria = db.query(func.count(PassCriteria.id)).filter(PassCriteria.exercise_id == e.id).scalar() or 0
+        return assigned_exercises
+
+    # Caso padrão (outros papéis): comportamento antigo — retorna todos
+    exercises = db.query(Exercise).filter(Exercise.event_id == event_id).order_by(Exercise.id.desc()).all()
+    for e in exercises:
+        e.total_criteria = db.query(func.count(PassCriteria.id)).filter(PassCriteria.exercise_id == e.id).scalar() or 0
     return exercises
 
 
@@ -156,12 +236,12 @@ def get_exercise(
     """Busca um Exercicio especifico com seus criterios de aprovacao."""
     try:
         exercise = db.query(Exercise).filter(Exercise.id == exercise_id).one()
-        
+
         # Busca os criterios
         criteria = db.query(PassCriteria).filter(
             PassCriteria.exercise_id == exercise_id
         ).all()
-        
+
         # Cria resposta com criterios - INCLUINDO OS NOVOS CAMPOS
         exercise_dict = {
             'id': exercise.id,
@@ -174,7 +254,7 @@ def get_exercise(
             'total_criteria': len(criteria),
             'criteria': criteria
         }
-        
+
         return exercise_dict
     except NoResultFound:
         raise HTTPException(
@@ -199,7 +279,7 @@ def update_exercise(
         )
 
     update_data = exercise_in.model_dump(exclude_unset=True)
-    
+
     for key, value in update_data.items():
         setattr(exercise, key, value)
 
@@ -207,12 +287,12 @@ def update_exercise(
         db.add(exercise)
         db.commit()
         db.refresh(exercise)
-        
+
         # Adiciona contador de critérios
         exercise.total_criteria = db.query(func.count(PassCriteria.id)).filter(
             PassCriteria.exercise_id == exercise.id
         ).scalar() or 0
-        
+
         return exercise
     except Exception as e:
         db.rollback()
@@ -229,7 +309,7 @@ def delete_exercise(
 ):
     """
     Deleta um Exercício.
-    
+
     ⚠️ ATENÇÃO: Isso também deletará todos os critérios e resultados relacionados
     devido ao CASCADE configurado no banco de dados.
     """
@@ -240,16 +320,14 @@ def delete_exercise(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exercício não encontrado."
         )
-    
+
     try:
         db.delete(exercise)
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao deletar exercício: {e}"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Erro ao deletar exercício: {e}")
 
 
 # =============================================================================
@@ -270,13 +348,13 @@ def create_pass_criteria(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exercício não encontrado."
         )
-    
+
     # Força o exercise_id do path
     criteria_data = criteria_in.model_dump()
     criteria_data['exercise_id'] = exercise_id
-    
+
     db_criteria = PassCriteria(**criteria_data)
-    
+
     try:
         db.add(db_criteria)
         db.commit()
@@ -284,10 +362,8 @@ def create_pass_criteria(
         return db_criteria
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao criar critério: {e}"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Erro ao criar critério: {e}")
 
 
 @router.get("/{exercise_id}/criteria", response_model=List[PassCriteriaOut])
@@ -303,11 +379,9 @@ def list_criteria_by_exercise(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exercício não encontrado."
         )
-    
-    criteria = db.query(PassCriteria).filter(
-        PassCriteria.exercise_id == exercise_id
-    ).all()
-    
+
+    criteria = db.query(PassCriteria).filter(PassCriteria.exercise_id == exercise_id).all()
+
     return criteria
 
 
@@ -327,7 +401,7 @@ def update_pass_criteria(
         )
 
     update_data = criteria_in.model_dump(exclude_unset=True)
-    
+
     for key, value in update_data.items():
         setattr(criteria, key, value)
 
@@ -338,10 +412,8 @@ def update_pass_criteria(
         return criteria
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao atualizar critério: {e}"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Erro ao atualizar critério: {e}")
 
 
 @router.delete("/criteria/{criteria_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -353,17 +425,14 @@ def delete_pass_criteria(
     try:
         criteria = db.query(PassCriteria).filter(PassCriteria.id == criteria_id).one()
     except NoResultFound:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Critério não encontrado."
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Critério não encontrado."
+                            )
+
     try:
         db.delete(criteria)
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao deletar critério: {e}"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Erro ao deletar critério: {e}")
