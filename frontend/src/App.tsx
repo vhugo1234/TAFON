@@ -24,6 +24,11 @@ import TAFExecutionPage from './pages/TAFExecutionPage';
 import TAFFieldEvaluationPage from './pages/TAFFieldEvaluationPage';
 import TAFResultsPage from './pages/TAFResultsPage';
 
+// Nova página de Presenças
+import AttendancePage from './pages/AttendancePage';
+import EventWorkersPage from './pages/EventWorkersPage';
+import EventRegisterAndAssignPage from './pages/EventRegisterAndAssignPage';
+
 // --- Componentes de Guarda (Sem AlteraÃ§Ã£o na LÃ³gica) ---
 
 function LoadingScreen() {
@@ -100,6 +105,24 @@ const App: React.FC = () => {
         element={
           <RequireAuth>
             <TenantHome />
+          </RequireAuth>
+        }
+      />
+
+      {/* Página de Presenças (Attendance) */}
+      <Route
+        path="/attendance"
+        element={
+          <RequireAuth>
+            <AttendancePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/attendance/:eventId"
+        element={
+          <RequireAuth>
+            <AttendancePage />
           </RequireAuth>
         }
       />
@@ -214,6 +237,24 @@ const App: React.FC = () => {
         }
       />
 
+      <Route
+        path="/taf/events/:eventId/workers"
+        element={
+          <RequireAuth>
+            <EventWorkersPage />
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/taf/events/:eventId/register"
+        element={
+          <RequireAuth>
+            <EventRegisterAndAssignPage />
+          </RequireAuth>
+        }
+      />
+
       {/* Catch-all: send to home logic */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -221,4 +262,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-

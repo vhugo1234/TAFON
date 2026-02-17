@@ -60,8 +60,8 @@ const MOCK_LOGS: LogEntry[] = [
 
 const PLAN_OPTIONS = ['free', 'premium', 'enterprise'];
 const STATUS_OPTIONS = ['active', 'inactive', 'pending', 'suspended'];
-const API_URL = '/api/v1/admin/';
-const UPLOAD_API_URL = '/api/v1/admin/upload/logo';
+const API_URL = '/admin/';
+const UPLOAD_API_URL = '/admin/upload/logo';
 
 const initialFormState: FormState = {
   name: '',

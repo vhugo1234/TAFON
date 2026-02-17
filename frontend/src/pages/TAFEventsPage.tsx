@@ -1,6 +1,4 @@
-// frontend/src/pages/TAFEventsPage.tsx
-
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Container, Typography, Box, Button, Grid, Card, CardContent, CardActions,
   Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -9,11 +7,12 @@ import {
 } from '@mui/material';
 import {
   Add, Edit, Delete, Visibility, Search, FilterList, Event as EventIcon,
-  People, FitnessCenter, CalendarToday, LocationOn, CheckCircle, Cancel, Assessment, Logout
+  People, FitnessCenter, CalendarToday, LocationOn, CheckCircle, Cancel, Assessment
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+import LogoutButton from '../components/LogoutButton';
 
 interface TAFEvent {
   id: number;
@@ -24,6 +23,10 @@ interface TAFEvent {
   is_active: boolean;
   total_candidates: number;
   total_exercises: number;
+  event_dates?: string[]; // opcional, quando disponível (YYYY-MM-DD)
+  // opcional: campo para exibir nome do coordenador caso API retorne
+  coordinator_name?: string;
+  coordinator?: { id?: number; full_name?: string };
 }
 
 interface FormState {
@@ -32,6 +35,7 @@ interface FormState {
   date_end: string;
   location: string;
   is_active: boolean;
+  coordinator_id?: number | null; // ID do Coordenador de Educação Física (opcional)
 }
 
 const initialFormState: FormState = {
@@ -39,13 +43,24 @@ const initialFormState: FormState = {
   date_start: new Date().toISOString().split('T')[0],
   date_end: new Date().toISOString().split('T')[0],
   location: '',
-  is_active: true
+  is_active: true,
+  coordinator_id: null
 };
 
 export default function TAFEventsPage() {
   const theme = useTheme();
-  const { token, logout } = useAuth();
+  const { token, logout, user } = useAuth();
   const navigate = useNavigate();
+
+  // --- determina se o usuário é avaliador limitado (muito restrito) ---
+  const isEvaluatorLimited = useMemo(() => {
+    if (!user) return false;
+    const asFlag = !!(user as any).evaluator_limited_view;
+    const byRole = (user.roles || []).some((r: string) => String(r).toUpperCase() === 'AVALIADOR_EF') ||
+                   (user.role && String(user.role).toUpperCase() === 'AVALIADOR_EF') ||
+                   (user.role_id !== undefined && Number(user.role_id) === 4);
+    return asFlag || byRole;
+  }, [user]);
 
   // Estados
   const [events, setEvents] = useState<TAFEvent[]>([]);
@@ -59,12 +74,31 @@ export default function TAFEventsPage() {
   const [editingEvent, setEditingEvent] = useState<TAFEvent | null>(null);
   const [form, setForm] = useState<FormState>(initialFormState);
 
+  // Event_dates UI
+  const [eventDates, setEventDates] = useState<string[]>([]);
+  const [newEventDate, setNewEventDate] = useState<string>('');
+
   // Filtros e Paginação
   const [search, setSearch] = useState('');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 9;
+
+  // Funções utilitárias para lidar com datas sem timezone issues
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  const formatDateYMD = (d: Date) => {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+
+  // recebe "YYYY-MM-DD" -> formata para "DD/MM/YYYY" para exibição (sem criar Date direto)
+  const formatYMDToDisplay = (ymd?: string) => {
+    if (!ymd) return '';
+    const parts = ymd.split('-');
+    if (parts.length !== 3) return ymd;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
 
   // Carregar eventos
   const loadEvents = useCallback(async () => {
@@ -99,6 +133,37 @@ export default function TAFEventsPage() {
     loadEvents();
   }, [loadEvents]);
 
+  // --- NEW: coordenadores (para vincular ao evento) ---
+  const [coordinators, setCoordinators] = useState<Array<{ id: number; full_name: string }>>([]);
+  const [loadingCoordinators, setLoadingCoordinators] = useState(false);
+
+  const loadCoordinators = useCallback(async () => {
+    try {
+      setLoadingCoordinators(true);
+      // Chama o endpoint correto que será exposto em events_taf.py
+      // Ajuste a URL se sua API expõe o router em outro prefixo
+      const resp = await api.get('/taf/events/coordinators', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // o backend retorna lista direta [{id, nome, email}, ...]
+      const items = resp.data || [];
+      const mapped = items.map((u: any) => ({
+        id: u.id,
+        full_name: u.nome ?? u.name ?? u.full_name ?? `${u.first_name || ''} ${u.last_name || ''}`.trim()
+      })).filter((x: any) => x.id !== undefined && x.full_name);
+      setCoordinators(mapped);
+    } catch (err) {
+      console.warn('Não foi possível carregar coordenadores (verifique endpoint):', err);
+      setCoordinators([]);
+    } finally {
+      setLoadingCoordinators(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadCoordinators();
+  }, [loadCoordinators]);
+
   // Handlers do formulário
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -111,26 +176,115 @@ export default function TAFEventsPage() {
   const handleOpenCreate = () => {
     setForm(initialFormState);
     setEditingEvent(null);
+    setEventDates([]);
+    setNewEventDate('');
     setOpenModal(true);
+    loadCoordinators();
   };
 
-  const handleOpenEdit = (event: TAFEvent) => {
-    setForm({
-      name: event.name,
-      date_start: event.date_start,
-      date_end: event.date_end,
-      location: event.location,
-      is_active: event.is_active
-    });
-    setEditingEvent(event);
-    setOpenModal(true);
+  // Ao editar, buscar o evento completo (incluindo event_dates)
+  const handleOpenEdit = async (event: TAFEvent) => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/taf/events/${event.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const ev = response.data;
+      setForm({
+        name: ev.name,
+        date_start: ev.date_start,
+        date_end: ev.date_end,
+        location: ev.location,
+        is_active: ev.is_active,
+        coordinator_id: ev.coordinator_id ?? ev.coordinator_user_id ?? ev.coordinator?.id ?? null
+      });
+      setEditingEvent(ev);
+
+      // preenche eventDates se retornado pelo backend; senao tenta gerar a partir do intervalo
+      if (ev.event_dates && Array.isArray(ev.event_dates) && ev.event_dates.length > 0) {
+        // assume backend returns array of "YYYY-MM-DD"
+        setEventDates(ev.event_dates.map((d: string) => d));
+      } else {
+        // gera intervalo a partir de date_start..date_end usando componentes (sem timezone)
+        try {
+          const [ys, ms, ds] = ev.date_start.split('-').map(Number);
+          const [ye, me, de] = ev.date_end.split('-').map(Number);
+          const dates: string[] = [];
+          for (let dt = new Date(ys, ms - 1, ds); ; dt.setDate(dt.getDate() + 1)) {
+            dates.push(formatDateYMD(new Date(dt)));
+            const curY = dt.getFullYear();
+            const curM = dt.getMonth() + 1;
+            const curD = dt.getDate();
+            if (curY === ye && curM === me && curD === de) break;
+          }
+          setEventDates(dates);
+        } catch {
+          setEventDates([]);
+        }
+      }
+      setNewEventDate('');
+
+      // Carrega coordenadores atualizados antes de abrir o modal
+      try {
+        await loadCoordinators();
+      } catch (err) {
+        console.warn('Falha ao recarregar coordenadores (mas abrindo modal mesmo assim):', err);
+      }
+
+      setOpenModal(true);
+    } catch (err: any) {
+      console.error('Erro ao buscar evento para edição', err);
+      setError('Erro ao carregar evento para edição');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCloseModal = () => {
     setOpenModal(false);
     setEditingEvent(null);
     setForm(initialFormState);
+    setEventDates([]);
+    setNewEventDate('');
     setError(null);
+  };
+
+  const addEventDate = () => {
+    if (!newEventDate) return;
+    if (eventDates.includes(newEventDate)) {
+      setNewEventDate('');
+      return;
+    }
+    const updated = [...eventDates, newEventDate].sort();
+    setEventDates(updated);
+    setNewEventDate('');
+  };
+
+  const removeEventDate = (d: string) => {
+    setEventDates(prev => prev.filter(x => x !== d));
+  };
+
+  // Gera dates a partir do intervalo usando componentes (evita timezone shift)
+  const generateDatesFromInterval = () => {
+    try {
+      // parse form.date_start and form.date_end which are "YYYY-MM-DD"
+      const [ys, ms, ds] = form.date_start.split('-').map(Number);
+      const [ye, me, de] = form.date_end.split('-').map(Number);
+      const start = new Date(ys, ms - 1, ds);
+      const end = new Date(ye, me - 1, de);
+
+      if (start > end) {
+        setError('Data de início deve ser anterior ou igual à data de término para gerar as datas.');
+        return;
+      }
+      const dates: string[] = [];
+      for (let dt = new Date(start); dt.getTime() <= end.getTime(); dt.setDate(dt.getDate() + 1)) {
+        dates.push(formatDateYMD(new Date(dt))); // usa getters locais para formatar YYYY-MM-DD
+      }
+      setEventDates(dates);
+    } catch (e) {
+      setError('Erro ao gerar datas a partir do intervalo.');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -138,14 +292,30 @@ export default function TAFEventsPage() {
     setSaving(true);
     setError(null);
 
+    // payload: incluir event_dates se user adicionou datas explícitas
+    const payload: any = {
+      name: form.name,
+      date_start: form.date_start,
+      date_end: form.date_end,
+      location: form.location,
+      is_active: form.is_active
+    };
+    if (eventDates && eventDates.length > 0) {
+      payload.event_dates = eventDates;
+    }
+    // incluir coordinator_id se selecionado (ajuste o nome do campo se backend esperar outro)
+    if (form.coordinator_id !== undefined && form.coordinator_id !== null && form.coordinator_id !== '') {
+      payload.coordinator_id = form.coordinator_id;
+    }
+
     try {
       if (editingEvent) {
-        await api.patch(`/taf/events/${editingEvent.id}`, form, {
+        await api.patch(`/taf/events/${editingEvent.id}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setSuccess('Evento atualizado com sucesso!');
       } else {
-        await api.post('/taf/events/', form, {
+        await api.post('/taf/events/', payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setSuccess('Evento criado com sucesso!');
@@ -204,31 +374,21 @@ export default function TAFEventsPage() {
               Gerencie os eventos e concursos de Teste de Aptidão Física
             </Typography>
           </Box>
-          <Stack direction="row" spacing={2}>
-            <Button
-              variant="contained"
-              size="large"
-              startIcon={<Add />}
-              onClick={handleOpenCreate}
-            >
-              Novo Evento
-            </Button>
-            <Tooltip title="Sair do sistema">
+          <Stack direction="row" spacing={2} alignItems="center">
+            {/* Novo Evento só para não-gerentes/avaliadores */}
+            {!isEvaluatorLimited && (
               <Button
-                variant="outlined"
-                color="error"
+                variant="contained"
                 size="large"
-                startIcon={<Logout />}
-                onClick={() => {
-                  if (window.confirm('Deseja realmente sair do sistema?')) {
-                    logout();
-                    navigate('/login');
-                  }
-                }}
+                startIcon={<Add />}
+                onClick={handleOpenCreate}
               >
-                Sair
+                Novo Evento
               </Button>
-            </Tooltip>
+            )}
+
+            {/* Botão Sair sempre visível (padronizado) */}
+            <LogoutButton variant="outlined" size="small" color="error" showText />
           </Stack>
         </Stack>
       </Box>
@@ -324,7 +484,7 @@ export default function TAFEventsPage() {
                       <Stack direction="row" alignItems="center" spacing={1}>
                         <CalendarToday fontSize="small" color="action" />
                         <Typography variant="body2" color="text.secondary">
-                          {new Date(event.date_start).toLocaleDateString('pt-BR')} até {new Date(event.date_end).toLocaleDateString('pt-BR')}
+                          {formatYMDToDisplay(event.date_start)} até {formatYMDToDisplay(event.date_end)}
                         </Typography>
                       </Stack>
 
@@ -334,6 +494,16 @@ export default function TAFEventsPage() {
                           {event.location}
                         </Typography>
                       </Stack>
+
+                      {/* Coordenador (se disponível) */}
+                      {(event.coordinator_name || event.coordinator?.full_name) && (
+                        <Stack direction="row" alignItems="center" spacing={1}>
+                          <People fontSize="small" color="action" />
+                          <Typography variant="body2" color="text.secondary" noWrap>
+                            Coordenador: {event.coordinator_name ?? event.coordinator?.full_name}
+                          </Typography>
+                        </Stack>
+                      )}
 
                       <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
                         <Chip
@@ -354,50 +524,69 @@ export default function TAFEventsPage() {
 
                   <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
                     <Stack direction="row" spacing={1}>
-                      <Button
-                        size="small"
-                        startIcon={<Visibility />}
-                        onClick={() => handleViewDetails(event.id)}
-                      >
-                        Detalhes
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<FitnessCenter />}
-                        onClick={() => navigate(`/taf/events/${event.id}/exercises`)}
-                      >
-                        Exercícios
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<People />}
-                        onClick={() => navigate(`/taf/events/${event.id}/candidates`)}
-                      >
-                        Candidatos
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<Assessment />}
-                        onClick={() => navigate(`/taf/events/${event.id}/results`)}
-                      >
-                        Resultados
-                      </Button>
+                      {/* Ações: se avaliador limitado, mostrar apenas "Exercícios" */}
+                      {isEvaluatorLimited ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<FitnessCenter />}
+                          onClick={() => navigate(`/taf/events/${event.id}/exercises`)}
+                        >
+                          Exercícios
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            size="small"
+                            startIcon={<Visibility />}
+                            onClick={() => handleViewDetails(event.id)}
+                          >
+                            Detalhes
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<FitnessCenter />}
+                            onClick={() => navigate(`/taf/events/${event.id}/exercises`)}
+                          >
+                            Exercícios
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<People />}
+                            onClick={() => navigate(`/taf/events/${event.id}/candidates`)}
+                          >
+                            Candidatos
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<Assessment />}
+                            onClick={() => navigate(`/taf/events/${event.id}/results`)}
+                          >
+                            Resultados
+                          </Button>
+                        </>
+                      )}
                     </Stack>
-                    <Stack direction="row" spacing={1}>
-                      <Tooltip title="Editar">
-                        <IconButton size="small" color="primary" onClick={() => handleOpenEdit(event)}>
-                          <Edit />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Excluir">
-                        <IconButton size="small" color="error" onClick={() => handleDelete(event)}>
-                          <Delete />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
+                    {/* Controles de edição/exclusão apenas para não avaliadores */}
+                    {!isEvaluatorLimited ? (
+                      <Stack direction="row" spacing={1}>
+                        <Tooltip title="Editar">
+                          <IconButton size="small" color="primary" onClick={() => handleOpenEdit(event)}>
+                            <Edit />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Excluir">
+                          <IconButton size="small" color="error" onClick={() => handleDelete(event)}>
+                            <Delete />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    ) : (
+                      <Box /> /* placeholder para manter layout */
+                    )}
                   </CardActions>
                 </Card>
               </Grid>
@@ -414,9 +603,11 @@ export default function TAFEventsPage() {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 Crie seu primeiro evento para começar a gerenciar os TAFs
               </Typography>
-              <Button variant="contained" startIcon={<Add />} onClick={handleOpenCreate}>
-                Criar Primeiro Evento
-              </Button>
+              {!isEvaluatorLimited && (
+                <Button variant="contained" startIcon={<Add />} onClick={handleOpenCreate}>
+                  Criar Primeiro Evento
+                </Button>
+              )}
             </Paper>
           )}
 
@@ -490,6 +681,29 @@ export default function TAFEventsPage() {
                 placeholder="Ex: Centro de Educação Física - Brasília/DF"
               />
 
+              {/* === NEW: Seleção do Coordenador de Educação Física === */}
+              <TextField
+                select
+                label="Coordenador (Educação Física)"
+                name="coordinator_id"
+                value={form.coordinator_id ?? ''}
+                onChange={(e) => setForm(prev => ({ ...prev, coordinator_id: e.target.value === '' ? null : Number(e.target.value) }))}
+                fullWidth
+                size="small"
+                helperText={loadingCoordinators ? 'Carregando coordenadores...' : 'Selecione o coordenador responsável pelo evento (opcional)'}
+                sx={{ mt: 2 }}
+              >
+                <MenuItem value="">— Nenhum —</MenuItem>
+                {loadingCoordinators ? (
+                  <MenuItem disabled>Carregando...</MenuItem>
+                ) : (
+                  coordinators.map(c => (
+                    <MenuItem key={c.id} value={c.id}>{c.full_name}</MenuItem>
+                  ))
+                )}
+              </TextField>
+              {/* === END NEW === */}
+
               <Stack direction="row" alignItems="center" spacing={2}>
                 <Typography variant="body2">Status do Evento:</Typography>
                 <Stack direction="row" spacing={1}>
@@ -507,6 +721,40 @@ export default function TAFEventsPage() {
                   />
                 </Stack>
               </Stack>
+
+              {/* Novas datas explícitas do evento */}
+              <Divider />
+              <Typography variant="subtitle1">Datas do Evento (opcional)</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Adicione as datas específicas em que o evento ocorrerá (ex.: finais de semana não-consecutivos).
+              </Typography>
+
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }}>
+                <TextField
+                  type="date"
+                  value={newEventDate}
+                  onChange={(e) => setNewEventDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                <Button variant="outlined" onClick={addEventDate}>Adicionar data</Button>
+                <Button variant="text" onClick={generateDatesFromInterval}>Gerar a partir do intervalo</Button>
+              </Stack>
+
+              <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+                {eventDates.map((d) => (
+                  <Chip
+                    key={d}
+                    label={formatYMDToDisplay(d)}
+                    onDelete={() => removeEventDate(d)}
+                    sx={{ mr: 1, mb: 1 }}
+                  />
+                ))}
+                {eventDates.length === 0 && (
+                  <Typography variant="caption" color="text.secondary">Nenhuma data adicionada — será usado o intervalo start..end por padrão.</Typography>
+                )}
+              </Stack>
+
             </Stack>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 3 }}>
@@ -527,9 +775,3 @@ export default function TAFEventsPage() {
     </Container>
   );
 }
-
-
-
-
-
-

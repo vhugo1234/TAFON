@@ -1,6 +1,4 @@
-// frontend/src/pages/TenantHome.tsx
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Box, Typography, Container, Grid, Card, CardContent, CardActions,
   Button, Stack, Avatar, Chip, LinearProgress, Paper, Divider,
@@ -9,11 +7,13 @@ import {
 import { 
   FitnessCenter, People, Event, Assessment, TrendingUp,
   Add, Visibility, ArrowForward, CalendarToday, PersonAdd,
-  Edit, BarChart, CheckCircle, Schedule, Settings, Logout
+  Edit, BarChart, CheckCircle, Schedule, Settings
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+import { FULL_ACCESS, FINANCIAL_ACCESS } from '../utils/roles';
+import LogoutButton from '../components/LogoutButton';
 
 interface DashboardStats {
   totalEvents: number;
@@ -30,7 +30,7 @@ interface DashboardStats {
 }
 
 const TenantHome: React.FC = () => {
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, hasAnyRole } = useAuth();
   const navigate = useNavigate();
   const theme = useTheme();
   
@@ -79,34 +79,42 @@ const TenantHome: React.FC = () => {
     }
   };
 
+  // Permissões
+  const canFullAccess = hasAnyRole(FULL_ACCESS);
+  const canAccessFinancial = hasAnyRole(FINANCIAL_ACCESS);
+
   const statCards = [
     {
       title: 'Eventos Totais',
       value: stats.totalEvents,
       icon: <Event sx={{ fontSize: 40 }} />,
       color: theme.palette.primary.main,
-      action: () => navigate('/taf/events')
+      action: () => navigate('/taf/events'),
+      visible: true
     },
     {
       title: 'Eventos Ativos',
       value: stats.activeEvents,
       icon: <CheckCircle sx={{ fontSize: 40 }} />,
       color: theme.palette.success.main,
-      action: () => navigate('/taf/events')
+      action: () => navigate('/taf/events'),
+      visible: true
     },
     {
       title: 'Candidatos',
       value: stats.totalCandidates,
       icon: <People sx={{ fontSize: 40 }} />,
       color: theme.palette.info.main,
-      action: () => navigate('/taf/candidates')
+      action: () => navigate('/taf/candidates'),
+      visible: true
     },
     {
       title: 'Relatórios',
       value: 'Ver Todos',
       icon: <Assessment sx={{ fontSize: 40 }} />,
       color: theme.palette.warning.main,
-      action: () => navigate('/taf/results')
+      action: () => navigate('/taf/results'),
+      visible: canFullAccess // só quem tem acesso total vê relatórios consolidados
     }
   ];
 
@@ -116,27 +124,60 @@ const TenantHome: React.FC = () => {
       description: 'Ver e criar eventos TAF',
       icon: <Event />,
       color: 'primary',
-      action: () => navigate('/taf/events')
+      action: () => navigate('/taf/events'),
+      visible: canFullAccess
     },
     {
       title: 'Ver Relatórios',
       description: 'Análise de resultados',
       icon: <BarChart />,
       color: 'warning',
-      action: () => navigate('/taf/results')
+      action: () => navigate('/taf/results'),
+      visible: canFullAccess
     },
     {
       title: 'Configurações',
       description: 'Gerenciar usuários e sistema',
       icon: <Settings />,
       color: 'secondary',
-      action: () => navigate('/settings')
+      action: () => navigate('/settings'),
+      visible: canFullAccess // ou ajustar para apenas ADMIN/COORD_GERAL se quiser
+    },
+    // NOVA AÇÃO: Página de Presenças (mantida entre ações rápidas, mas removida do cabeçalho)
+    {
+      title: 'Presenças',
+      description: 'Registrar e visualizar presenças do evento',
+      icon: <PersonAdd />,
+      color: 'success',
+      action: () => navigate('/attendance'),
+      visible: canFullAccess || canAccessFinancial // ajuste conforme regras de visibilidade
     }
   ];
 
+  // --- NOVA LÓGICA: detectar avaliador limitado e obter exercícios vinculados do user ---
+  const isEvaluatorLimited = useMemo(() => {
+    if (!user) return false;
+    const asFlag = !!(user as any).evaluator_limited_view;
+    const byRole = (user.roles || []).some((r: string) => String(r).toUpperCase() === 'AVALIADOR_EF') ||
+                   (user.role && String(user.role).toUpperCase() === 'AVALIADOR_EF') ||
+                   (user.role_id !== undefined && Number(user.role_id) === 4);
+    return asFlag || byRole;
+  }, [user]);
+
+  const assignedExercises: Array<any> = useMemo(() => {
+    const arr = (user as any)?.assigned_exercises || [];
+    if (!Array.isArray(arr)) return [];
+    return arr.map((a: any) => ({
+      exercise_id: Number(a.exercise_id),
+      event_id: Number(a.event_id),
+      exercise_name: a.exercise_name ?? a.name ?? `Exercício ${a.exercise_id}`,
+      is_primary: !!a.is_primary
+    }));
+  }, [user]);
+
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-      {/* Cabeçalho de Boas-vindas */}
+      {/* Cabeçalho de Boas-vindas */} 
       <Box sx={{ mb: 4 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={2}>
           <Box>
@@ -147,28 +188,67 @@ const TenantHome: React.FC = () => {
               {tenantName} • Painel de Controle TAF
             </Typography>
           </Box>
-          <Tooltip title="Sair do sistema">
-            <Button
-              variant="outlined"
-              color="error"
-              size="large"
-              startIcon={<Logout />}
-              onClick={() => {
-                if (window.confirm('Deseja realmente sair do sistema?')) {
-                  logout();
-                  navigate('/login');
-                }
-              }}
-            >
-              Sair
-            </Button>
-          </Tooltip>
+
+          {/* Removido botão "Presenças" do cabeçalho; apenas Logout permanece */}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <LogoutButton variant="outlined" size="small" color="error" showText />
+          </Stack>
         </Stack>
       </Box>
 
+      {/* Se o usuário for avaliador limitado, mostrar seus exercícios vinculados em destaque */}
+      {isEvaluatorLimited && (
+        <Box sx={{ mb: 3 }}>
+          <Paper sx={{ p: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+              <Typography variant="h6" fontWeight={600}>Seus Exercícios Vinculados</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {assignedExercises.length} vínculo(s)
+              </Typography>
+            </Stack>
+            <Divider sx={{ mb: 2 }} />
+            {assignedExercises.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 3 }}>
+                <Typography variant="body2" color="text.secondary">Você não está vinculado a nenhum exercício.</Typography>
+              </Box>
+            ) : (
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                {assignedExercises.map((ae) => (
+                  <Card key={`${ae.event_id}-${ae.exercise_id}`} sx={{ minWidth: 240 }}>
+                    <CardContent>
+                      <Typography variant="subtitle1" fontWeight={600}>{ae.exercise_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Evento: {ae.event_id}
+                      </Typography>
+                    </CardContent>
+                    <CardActions>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<FitnessCenter />}
+                        onClick={() => navigate(`/taf/events/${ae.event_id}/exercises/${ae.exercise_id}/field`)}
+                      >
+                        Avaliar em Campo
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => { logout(); navigate('/login'); }}
+                      >
+                        Sair
+                      </Button>
+                    </CardActions>
+                  </Card>
+                ))}
+              </Stack>
+            )}
+          </Paper>
+        </Box>
+      )}
+
       {/* Cards de Estatísticas */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {statCards.map((card, index) => (
+        {statCards.filter(c => c.visible).map((card, index) => (
           <Grid item xs={12} sm={6} md={3} key={index}>
             <Card 
               sx={{ 
@@ -217,7 +297,7 @@ const TenantHome: React.FC = () => {
               ⚡ Ações Rápidas
             </Typography>
             <Grid container spacing={2}>
-              {quickActions.map((action, index) => (
+              {quickActions.filter(a => a.visible).map((action, index) => (
                 <Grid item xs={12} sm={6} key={index}>
                   <Card 
                     sx={{ 
@@ -278,7 +358,8 @@ const TenantHome: React.FC = () => {
                       sx={{ 
                         cursor: 'pointer',
                         borderRadius: 1,
-                        '&:hover': { bgcolor: 'action.hover' }
+                        '&:hover': { bgcolor: 'action.hover' },
+                        py: 1.5
                       }}
                       onClick={() => navigate(`/taf/events/${event.id}`)}
                     >
@@ -287,35 +368,54 @@ const TenantHome: React.FC = () => {
                           <CalendarToday />
                         </Avatar>
                       </ListItemAvatar>
-                      <ListItemText
-                        primary={
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Typography variant="subtitle1" fontWeight={600}>
-                              {event.name}
-                            </Typography>
-                            <Chip 
-                              label={event.is_active ? 'Ativo' : 'Inativo'} 
-                              size="small"
-                              color={event.is_active ? 'success' : 'default'}
-                            />
-                          </Stack>
-                        }
-                        secondary={
-                          <Stack direction="row" spacing={2}>
-                            <Typography variant="caption">
-                              📍 {event.location || 'Local não definido'}
-                            </Typography>
-                            <Typography variant="caption">
-                              📆 {new Date(event.date_start).toLocaleDateString('pt-BR')}
-                            </Typography>
-                          </Stack>
-                        }
-                        primaryTypographyProps={{ component: 'div' }}
-                        secondaryTypographyProps={{ component: 'div' }}
-                      />
-                      <IconButton size="small">
-                        <Visibility />
-                      </IconButton>
+
+                      {/* Main content (left) */}
+                      <Box sx={{ flex: 1, minWidth: 0, mr: 2 }}>
+                        <ListItemText
+                          primary={
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ overflow: 'hidden' }}>
+                              <Typography variant="subtitle1" fontWeight={600} noWrap>
+                                {event.name}
+                              </Typography>
+                              <Chip 
+                                label={event.is_active ? 'Ativo' : 'Inativo'} 
+                                size="small"
+                                color={event.is_active ? 'success' : 'default'}
+                              />
+                            </Stack>
+                          }
+                          secondary={
+                            <Stack direction="row" spacing={2}>
+                              <Typography variant="caption" color="text.secondary" noWrap>
+                                📍 {event.location || 'Local não definido'}
+                              </Typography>
+                              <Typography variant="caption" noWrap>
+                                📆 {event.date_start ? new Date(event.date_start).toLocaleDateString('pt-BR') : '—'}
+                              </Typography>
+                            </Stack>
+                          }
+                          primaryTypographyProps={{ component: 'div' }}
+                          secondaryTypographyProps={{ component: 'div' }}
+                        />
+                      </Box>
+
+                      {/* Actions (right) - kept outside text to avoid overlap */}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-end' }}>
+                        {(canFullAccess || canAccessFinancial) && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={(e) => { e.stopPropagation(); navigate(`/taf/events/${event.id}/workers`); }}
+                          >
+                            Equipe
+                          </Button>
+                        )}
+                        <Tooltip title="Visualizar evento">
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/taf/events/${event.id}`); }}>
+                            <Visibility />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     </ListItem>
                     {index < stats.recentEvents.length - 1 && <Divider />}
                   </React.Fragment>
@@ -390,4 +490,3 @@ const TenantHome: React.FC = () => {
 };
 
 export default TenantHome;
-

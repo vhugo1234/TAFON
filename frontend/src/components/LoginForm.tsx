@@ -17,8 +17,9 @@ import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import ReCAPTCHA from "react-google-recaptcha";
 import FitnessCenterIcon from "@mui/icons-material/FitnessCenter";
 
-// Logo será servido do public folder ou usaremos um ícone
-const logoSrc = "/logo.png";
+// Logo será servido do public folder ou via prop/env
+// prefere env -> fallback para localhost
+const DEFAULT_LOGO = (import.meta.env.VITE_SYSTEM_LOGO as string) || "http://localhost:8000/static/logos/logo.png";
 
 type Props = {
   username: string;
@@ -30,6 +31,8 @@ type Props = {
   error?: string | null;
   loading?: boolean;
   handleSubmit: (e: React.FormEvent) => Promise<void> | void;
+  // Nova prop: URL da logo do sistema (opcional). Pode ser passada pelo pai.
+  systemLogoUrl?: string | null;
 };
 
 const ENV_SITE_KEY = (import.meta.env.VITE_RECAPTCHA_SITE_KEY as string) || "";
@@ -47,24 +50,28 @@ export default function LoginForm({
   error,
   loading,
   handleSubmit,
+  systemLogoUrl = null,
 }: Props) {
   const [showPwd, setShowPwd] = useState(false);
-  const [logoError, setLogoError] = useState(false);
+  const [systemLogoError, setSystemLogoError] = useState(false);
+
+  // escolha da logo do sistema: prop > env > fallback
+  const envSystemLogo = (import.meta.env.VITE_SYSTEM_LOGO as string) || "";
+  const systemLogoSrc = systemLogoUrl || envSystemLogo || DEFAULT_LOGO;
 
   return (
     <Box component="form" onSubmit={handleSubmit} noValidate sx={{ px: 3 }}>
-      {/* Top area: logo + product title */}
+      {/* Top area: only the logo + brief description (no duplicate "TAFON" text) */}
       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, mb: 3 }}>
-        {/* Logo - usar ícone como fallback */}
-        {!logoError ? (
+        {!systemLogoError ? (
           <Box
             component="img"
-            src={logoSrc}
-            alt="TAFON - logotipo"
-            onError={() => setLogoError(true)}
-            aria-label="Logotipo TAFON"
+            src={systemLogoSrc}
+            alt="Logo do Sistema"
+            onError={() => setSystemLogoError(true)}
+            aria-label="Logo do Sistema"
             sx={{
-              width: { xs: 110, sm: 160, md: 220 },
+              width: { xs: 140, sm: 220, md: 280 },
               height: "auto",
               objectFit: "contain",
               display: "block",
@@ -72,24 +79,12 @@ export default function LoginForm({
             }}
           />
         ) : (
-          <Avatar
-            sx={{
-              width: 80,
-              height: 80,
-              bgcolor: 'primary.main',
-              mb: 1,
-            }}
-          >
+          <Avatar sx={{ width: 80, height: 80, bgcolor: 'primary.main', mb: 1 }}>
             <FitnessCenterIcon sx={{ fontSize: 40 }} />
           </Avatar>
         )}
 
-        {/* Product name */}
-        <Typography variant="h4" sx={{ fontWeight: 800, mt: 0.5, color: 'primary.main' }}>
-          TAFON
-        </Typography>
-
-        <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360, mt: 1 }}>
           Entre com suas credenciais para gerenciar testes de aptidão física.
         </Typography>
       </Box>
@@ -134,11 +129,7 @@ export default function LoginForm({
         InputProps={{
           endAdornment: (
             <InputAdornment position="end">
-              <IconButton
-                aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
-                onClick={() => setShowPwd((s) => !s)}
-                edge="end"
-              >
+              <IconButton aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"} onClick={() => setShowPwd((s) => !s)} edge="end">
                 {showPwd ? <VisibilityOff /> : <Visibility />}
               </IconButton>
             </InputAdornment>
@@ -165,7 +156,7 @@ export default function LoginForm({
             />
           </Box>
         ) : (
-          <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
+          <Alert severity="info" sx={{ fontSize: "0.75rem" }}>
             reCAPTCHA em modo de desenvolvimento
           </Alert>
         )}
@@ -203,4 +194,3 @@ export default function LoginForm({
     </Box>
   );
 }
-

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -7,7 +7,9 @@ from app.db.models.public import UserCentral
 from app.core.security import create_access_token, verify_password
 from app.core.config import settings
 from datetime import timedelta
+from typing import Optional
 import traceback
+from jose import jwt, JWTError
 import re
 import logging
 
@@ -119,6 +121,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
                     "is_superuser": getattr(user, "is_superuser", False),
                     "nome": getattr(user, "nome", user.email),
                     "role": "SUPERUSER",
+                    "role_id": None,
                     "is_admin": True,
                     "empresa": empresa,
                     "logoUrl": logoUrl,
@@ -136,6 +139,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
                 "logoUrl": logoUrl,
                 "nome": getattr(user, "nome", user.email),
                 "role": "SUPERUSER",
+                "role_id": None,
                 "is_admin": True,
                 "email": user.email,
             }
@@ -228,6 +232,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
                             "user_id": user_tenant_id,
                             "nome": nome,
                             "role": role_val or str(role_id) if role_id else "user",
+                            "role_id": role_id,
                             "is_admin": bool(is_admin),
                             "empresa": empresa,
                             "logoUrl": logoUrl,
@@ -246,6 +251,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
                         "logoUrl": logoUrl,
                         "nome": nome,
                         "role": role_val or str(role_id) if role_id else "user",
+                        "role_id": role_id,
                         "is_admin": bool(is_admin),
                         "email": email_val
                     }
@@ -263,3 +269,43 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
         detail="Credenciais inválidas",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+@router.get("/me")
+async def me(authorization: Optional[str] = Header(None)):
+    """
+    Retorna informações públicas do usuário baseado no access token Bearer.
+    Header esperado: Authorization: Bearer <token>
+    """
+    if not authorization:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Authorization header missing")
+
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Invalid authorization header")
+
+    token = parts[1]
+
+    try:
+        alg = getattr(settings, "ALGORITHM", "HS256")
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[alg])
+    except JWTError as e:
+        logger.debug(f"JWT decode error: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido ou expirado")
+
+    user_info = {
+        "nome": payload.get("nome") or payload.get("name"),
+        "email": payload.get("email") or payload.get("sub"),
+        "id": payload.get("user_id") or payload.get("id"),
+        "role": payload.get("role"),
+        "role_id": payload.get("role_id"),
+        "roles": payload.get("roles"),
+        "is_admin": payload.get("is_admin"),
+        "is_superuser": payload.get("is_superuser"),
+        "empresa": payload.get("empresa"),
+        "logoUrl": payload.get("logoUrl"),
+        "schema_name": payload.get("schema_name"),
+    }
+    return user_info

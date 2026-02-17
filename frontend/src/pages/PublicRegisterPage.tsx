@@ -1,12 +1,12 @@
 import React, { useState, ChangeEvent, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Box, TextField, Button, Typography, Alert, Checkbox, FormControlLabel, MenuItem, Paper, Stack, Avatar, Dialog, DialogTitle, DialogContent, DialogActions
+  Box, TextField, Button, Typography, Alert, Checkbox, FormControlLabel, MenuItem, Paper, Stack, Avatar, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress
 } from '@mui/material';
 import PhotoCamera from '@mui/icons-material/PhotoCamera';
 import api from '../lib/api';
 
-// Modelo do usuÃ¡rio pÃºblico cadastrado (frontend)
+// Modelo do usuário público cadastrado (frontend)
 type PublicUserForm = {
   username: string;
   email: string;
@@ -22,16 +22,30 @@ type PublicUserForm = {
   address: string;
   avatar_file: File | null;
   specialty: string;
-  role: string;        // string role (frontend)
-  role_id?: number;    // numeric role id fallback (backend may expect)
+  // role stored as string (select returns strings). 'other' is literal.
+  role: string;
+  role_id?: number | null;    // numeric role id fallback (backend may expect)
   tenant_id: string;
   accepted_terms: boolean;
+  // CREF (registro profissional) — requerido para algumas roles
+  cref?: string;
+  // banking fields (new)
+  bank_name?: string;
+  pix?: string;
+  bank_account?: string;
+  agency?: string;
 };
 
-const ROLES = [
-  { value: 'professor', label: 'Professor', id: 3 },
-  { value: 'revisor', label: 'Revisor', id: 4 },
-  { value: 'diagramador', label: 'Diagramador', id: 5 }
+const ROLES: Array<{ value: string; label: string; id?: number }> = [
+  { value: '1', label: "Administrador Geral" },
+  { value: '2', label: "Coordenador Geral" },
+  { value: '3', label: "Coordenador de Educação Física" },
+  { value: '4', label: "Avaliador de Educação Física" },
+  { value: '5', label: "Apoio" },
+  { value: '6', label: "Técnico de AudioVisual" },
+  { value: '7', label: "Volantes" },
+  { value: '8', label: "Fiscais" },
+  { value: 'other', label: "Outros" },
 ];
 
 const initialForm: PublicUserForm = {
@@ -49,22 +63,110 @@ const initialForm: PublicUserForm = {
   address: "",
   avatar_file: null,
   specialty: "",
-  role: "professor",
-  role_id: ROLES.find(r => r.value === 'professor')?.id,
+  role: '1',
+  role_id: 1,
   tenant_id: "",
   accepted_terms: false,
+  cref: "",
+  // banking defaults
+  bank_name: "",
+  pix: "",
+  bank_account: "",
+  agency: "",
 };
 
 const TERM_TEXT = `
-Termo de Uso e SeguranÃ§a da Plataforma StockWise
+Versão: 1.0
+Vigência: [2026-01-09]
 
-... (omitido para brevidade) ...
+Resumo rápido
+Ao aceitar este Termo você autoriza o tratamento dos seus dados cadastrais pela TAF ON, concorda em fornecer informações verdadeiras (incluindo CREF, quando aplicável), aceita as condições de uso da plataforma e reconhece que seu acesso poderá depender de aprovação do administrador.
+
+1. Partes
+Este Termo é celebrado entre o Usuário (pessoa natural que realiza o cadastro) e a Operadora da Plataforma TAF ON ("Plataforma", "Nós"), com finalidade de regular o uso da aplicação, serviços e funcionalidades disponibilizadas no ambiente.
+
+2. Objeto
+Este Termo regula:
+- o cadastro de usuários por meio do formulário público;
+- o tratamento, armazenamento e eventual publicação de dados e arquivos de avatar;
+- as regras de segurança, responsabilidade e conduta na utilização da Plataforma.
+
+3. Cadastro, dados e CREF
+3.1. O Usuário concorda em fornecer dados verdadeiros e atualizados no cadastro (nome, username, e-mail, CPF, telefone, instituição, função, CREF quando aplicável, etc.).
+3.2. Para as funções "Coordenador de Educação Física" e "Avaliador de Educação Física" (ou outras que venham a ser definidas), o Usuário deve informar seu registro profissional (CREF). A Plataforma poderá verificar ou validar esse dado conforme políticas internas.
+3.3. O não fornecimento de informações exigidas pode resultar em impossibilidade de completar o cadastro ou uso restrito da conta.
+
+4. Criação, ativação e aprovação de conta
+4.1. Após o envio do cadastro, o Usuário poderá:
+  a) Ser ativado automaticamente e receber acesso imediato; ou
+  b) Ter a conta criada em estado pendente, aguardando aprovação do administrador.
+  4.2. A política de ativação depende das regras do tenant e do endpoint utilizado. Quando a aprovação administrativa for exigida, o Usuário será notificado e não terá acesso total até a aprovação.
+
+5. Avatar e conteúdos enviados
+5.1. O Usuário pode enviar uma imagem de avatar. A imagem não deve violar direitos de terceiros, nem conter material ofensivo, discriminatório, pornográfico ou ilegal.
+5.2. Ao enviar arquivos para a Plataforma, o Usuário concede à Operadora licença para armazenar, processar e exibir essas imagens, dentro do contexto da prestação de serviço ao tenant.
+5.3. A Plataforma não é responsável por conteúdo que viole terceiros, mas pode remover ou bloquear conteúdo mediante notificação.
+
+6. Tratamento de dados pessoais e privacidade
+6.1. Os dados pessoais fornecidos serão tratados para execução do serviço (criação de conta, autenticação, administração do tenant) e conforme a Política de Privacidade da Plataforma.
+6.2. As bases legais incluem: execução de contrato/serviço, consentimento do usuário e cumprimento de obrigações legais.
+6.3. O Usuário pode, nos termos da legislação aplicável, solicitar acesso, retificação, exclusão ou portabilidade dos seus dados. Para exercer esses direitos, contate: [endereço de e-mail de contato].
+6.4. Dados sensíveis ou de saúde não devem ser incluídos no cadastro público sem autorização específica.
+
+7. Segurança
+7.1. A Plataforma adota medidas técnicas e administrativas razoáveis para proteger os dados contra acesso não autorizado, perda ou alteração. Contudo, nenhum sistema é absolutamente seguro; o Usuário também deve:
+  - usar senhas fortes,
+  - não compartilhar credenciais,
+  - notificar imediatamente qualquer uso não autorizado.
+7.2. A Plataforma poderá impor requisitos adicionais (ex.: autenticação multifator) conforme política do tenant.
+
+8. Proibições e uso adequado
+8.1. É vedado ao Usuário:
+  - usar a Plataforma para fins ilegais;
+  - inserir conteúdo que viole direitos de propriedade intelectual ou direitos de terceiros;
+  - tentar burlar mecanismos de segurança da Plataforma.
+8.2. Violações podem resultar em suspensão ou exclusão de conta, sem prejuízo de responsabilidades civis e criminais.
+
+9. Propriedade intelectual
+9.1. A Plataforma e seus serviços, interfaces, marcas e materiais são de titularidade da Operadora, salvo conteúdos fornecidos pelos Usuários.
+9.2. Ao utilizar a Plataforma o Usuário concede licença não exclusiva para exibir e processar o conteúdo enviado, quando necessário à prestação do serviço.
+
+10. Limitação de responsabilidade
+10.1. A Plataforma não garante disponibilidade contínua e ininterrupta; interrupções programadas ou por força maior podem ocorrer.
+10.2. A Operadora não será responsável por danos indiretos, lucros cessantes ou consequências decorrentes do uso indevido da Plataforma, salvo disposição legal em contrário.
+
+11. Retenção e exclusão de dados
+11.1. Dados de cadastro serão mantidos enquanto a conta existir ou conforme obrigação legal.
+11.2. O Usuário pode solicitar exclusão da conta; a exclusão pode ser sujeita a regras do tenant e retentiva legal (logs, obrigações fiscais).
+
+12. Alterações do Termo
+12.1. A Plataforma pode revisar este Termo. Alterações materiais serão comunicadas e, quando exigido, o consentimento do Usuário será solicitado.
+12.2. A versão em vigor está indicada no cabeçalho (Versão / Vigência).
+
+13. Contato
+13.1. Para dúvidas, solicitações de direitos (acesso/retificação/exclusão) e denúncias sobre conteúdo, contate: [email@tafon.com] (substituir pelo contato real).
+13.2. Informe em seu contato: nome completo, username, tenant (se aplicável) e descrição do pedido.
+
+14. Disposições finais e foro
+14.1. Este Termo será regido pela legislação do país aplicável (substituir conforme jurisdição). Qualquer disputa será submetida ao foro competente indicado pela Operadora, salvo disposição legal em contrário.
+
+Declaro que li, compreendi e aceito os termos acima ao marcar a opção "Li e aceito o Termo de Uso e Segurança da Plataforma TAF ON".
 `;
+
+// util: cria URL absoluta para o arquivo estático no backend (static/logos)
+function getStaticLogoUrl(filename?: string) {
+  if (!filename) return "";
+  const raw = (import.meta.env.VITE_API_URL || "http://localhost:8000") as string;
+  const apiBase = raw.replace(/\/api(\/.*)?$/, '').replace(/\/+$/, '');
+  if (filename.startsWith("http://") || filename.startsWith("https://")) return filename;
+  if (filename.startsWith("/")) return `${apiBase}${filename}`;
+  // arquivo esperado em: <backend_base>/static/logos/{filename}
+  return `${apiBase}/static/logos/${filename}`;
+}
 
 export default function PublicRegisterPage() {
   const [searchParams] = useSearchParams();
 
-  // extraÃ§Ã£o flexÃ­vel do tenant a partir de query params
   const schemaParam = searchParams.get('schema_name') ?? searchParams.get('schema');
   const paramCandidates = [
     searchParams.get('tenant_id'),
@@ -74,7 +176,6 @@ export default function PublicRegisterPage() {
   ];
   const initialTenantFromUrl = (paramCandidates.find(x => x && x.trim() !== "") ?? "") as string;
 
-  // tenantId virÃ¡ do link; nÃ£o exibimos campo manual ao usuÃ¡rio conforme solicitado
   const [tenantId] = useState<string>(initialTenantFromUrl);
 
   const [form, setForm] = useState<PublicUserForm>({ ...initialForm, tenant_id: tenantId });
@@ -86,24 +187,45 @@ export default function PublicRegisterPage() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Termo modal
   const [termoOpen, setTermoOpen] = useState(false);
   const [termoLido, setTermoLido] = useState(false);
 
-  function handleChange(e: ChangeEvent<HTMLInputElement>) {
-    const { name, value, type, checked, files } = e.target;
+  // helper: role ids that require CREF
+  const rolesRequiringCref = new Set(['3', '4']);
+
+  // compute tenant & default logo URLs and managed logo src (falls back if tenant logo 404s)
+  const defaultLogoUrl = getStaticLogoUrl("logo.png");
+  const tenantLogoUrl = tenantId ? getStaticLogoUrl(`${tenantId}.png`) : defaultLogoUrl;
+  const [logoSrc, setLogoSrc] = useState<string>(tenantLogoUrl);
+  const [imageFailed, setImageFailed] = useState<boolean>(false);
+
+  // keep logoSrc in sync when tenantId changes
+  useEffect(() => {
+    setImageFailed(false);
+    setLogoSrc(tenantId ? getStaticLogoUrl(`${tenantId}.png`) : defaultLogoUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
+
+  // Accept change events from inputs and selects
+  function handleChange(e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    const target = e.target as HTMLInputElement & { files?: FileList };
+    const { name, value, type, checked, files } = target;
     if (type === "checkbox") {
       setForm((f) => ({ ...f, [name]: checked }));
     } else if (type === "file" && files) {
       setForm((f) => ({ ...f, avatar_file: files[0] }));
       setAvatarPreview(URL.createObjectURL(files[0]));
     } else {
-      // if role changed, also set role_id fallback
       if (name === "role") {
-        const roleStr = String(value);
-        const r = ROLES.find(rr => rr.value === roleStr);
-        setForm((f) => ({ ...f, role: roleStr, role_id: r?.id }));
+        const v = String(value);
+        if (v === "other") {
+          setForm((f) => ({ ...f, role: "other", role_id: null }));
+        } else {
+          const numeric = Number(v);
+          setForm((f) => ({ ...f, role: v, role_id: Number.isNaN(numeric) ? null : numeric }));
+        }
       } else {
         setForm((f) => ({ ...f, [name]: value }));
       }
@@ -113,20 +235,25 @@ export default function PublicRegisterPage() {
   function handleAbrirTermo() { setTermoOpen(true); }
   function handleFecharTermo() { setTermoOpen(false); setTermoLido(true); }
 
+  // Config to ensure axios does NOT set Content-Type header manually for FormData
+  const multipartConfig = {
+    headers: { /* intentionally no Content-Type here */ },
+    transformRequest: [(data: any, headers: any) => {
+      if (headers && headers['Content-Type']) delete headers['Content-Type'];
+      return data;
+    }]
+  };
+
   // Tenant-aware POST that tries a small set of likely endpoints (relative to api.baseURL).
   async function postWithFallback(formData: FormData, tenantId?: string) {
     const candidates: string[] = [];
 
     if (tenantId && tenantId.trim() !== "") {
       candidates.push(`/tenants/${encodeURIComponent(tenantId)}/public/register`);
-      candidates.push(`/tenants/${encodeURIComponent(tenantId)}/register`);
-      candidates.push(`/tenants/${encodeURIComponent(tenantId)}/users/`);
     }
 
-    candidates.push('/users/register');
-    candidates.push('/users/');
-    candidates.push('/register');
     candidates.push('/public/register');
+    candidates.push('/register');
 
     let lastErr: any = null;
     try {
@@ -137,9 +264,7 @@ export default function PublicRegisterPage() {
     for (const path of candidates) {
       try {
         console.debug('[PublicRegister] Trying POST', path);
-        const resp = await api.post(path, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
+        const resp = await api.post(path, formData, multipartConfig);
         console.debug('[PublicRegister] Success at', path, resp);
         return resp;
       } catch (err: any) {
@@ -163,7 +288,7 @@ export default function PublicRegisterPage() {
     setError(null);
 
     if (!tenantId || tenantId.trim() === "") {
-      setError("Registro disponÃ­vel somente via link institucional. Abra o link fornecido pela sua instituiÃ§Ã£o.");
+      setError("Registro disponível somente via link institucional. Abra o link fornecido pela sua instituição.");
       return;
     }
 
@@ -173,125 +298,175 @@ export default function PublicRegisterPage() {
         key !== "avatar_file" &&
         key !== "notes" &&
         key !== "accepted_terms" &&
+        key !== "cref" &&
+        key !== "bank_name" &&
+        key !== "pix" &&
+        key !== "bank_account" &&
+        key !== "agency" &&
         typeof value === "string" &&
         value.trim() === ""
       ) {
-        setError("Preencha todos os campos obrigatÃ³rios.");
+        setError("Preencha todos os campos obrigatórios.");
         return;
       }
     }
+
+    // If role requires CREF, enforce it
+    if (rolesRequiringCref.has(form.role) && (!form.cref || String(form.cref).trim() === "")) {
+      setError("CREF é obrigatório para a função selecionada.");
+      return;
+    }
+
     if (!form.avatar_file) {
-      setError("A foto Ã© obrigatÃ³ria.");
+      setError("A foto é obrigatória.");
       return;
     }
     if (!form.accepted_terms) {
-      setError("Ã‰ obrigatÃ³rio aceitar os Termos de Uso e SeguranÃ§a para se cadastrar.");
+      setError("É obrigatório aceitar os Termos de Uso e Segurança para se cadastrar.");
       return;
     }
 
-    // build FormData: send both Portuguese and English name fields, and a role_id fallback
-    const formData = new FormData();
-    formData.append("username", form.username);
-    formData.append("email", form.email);
-    formData.append("password", form.password);
-    formData.append("full_name", form.full_name);
-    // also append 'nome' to support backends expecting Portuguese field
-    formData.append("nome", form.full_name || form.nome || form.username);
-    formData.append("cpf", form.cpf);
-    formData.append("phone", form.phone);
-    formData.append("department", form.department);
-    formData.append("institution", form.institution);
-    formData.append("birth_date", form.birth_date);
-    formData.append("notes", form.notes);
-    formData.append("address", form.address);
-    formData.append("specialty", form.specialty);
-    formData.append("role", form.role);
-    if (form.role_id) formData.append("role_id", String(form.role_id));
-    formData.append("accepted_terms", String(form.accepted_terms));
-    formData.append("tenant_id", tenantId);
-    if (form.avatar_file) formData.append("avatar_file", form.avatar_file);
-
+    setSubmitting(true);
     try {
+      const formData = new FormData();
+      formData.append("username", form.username);
+      formData.append("email", form.email);
+      formData.append("password", form.password);
+      formData.append("full_name", form.full_name);
+      formData.append("nome", form.full_name || form.nome || form.username);
+      formData.append("cpf", form.cpf);
+      formData.append("phone", form.phone);
+      formData.append("department", form.department);
+      formData.append("institution", form.institution);
+      formData.append("birth_date", form.birth_date);
+      formData.append("notes", form.notes);
+      formData.append("address", form.address);
+      formData.append("specialty", form.specialty);
+
+      // role + role_id handling
+      formData.append("role", String(form.role));
+      if (form.role === "other") {
+        formData.append("role_id", "");
+      } else if (form.role_id !== undefined && form.role_id !== null) {
+        formData.append("role_id", String(form.role_id));
+      }
+
+      // append CREF when present (and required)
+      if (form.cref) {
+        formData.append("cref", String(form.cref));
+      }
+
+      // banking fields (optional)
+      if (form.bank_name) formData.append("bank_name", String(form.bank_name));
+      if (form.pix) formData.append("pix", String(form.pix));
+      if (form.bank_account) formData.append("bank_account", String(form.bank_account));
+      if (form.agency) formData.append("agency", String(form.agency));
+
+      formData.append("accepted_terms", String(form.accepted_terms));
+      formData.append("tenant_id", tenantId);
+      if (form.avatar_file) formData.append("avatar_file", form.avatar_file);
+
+      // debug: inspect FormData entries (File shows as File object in console)
+      try {
+        console.debug("[PublicRegister] formData avatar_file:", form.avatar_file);
+        console.debug("[PublicRegister] formData fd.get('avatar_file'):", formData.get("avatar_file"));
+      } catch (e) {
+        console.debug("[PublicRegister] unable to debug FormData (browser limitation)");
+      }
+
       const resp = await postWithFallback(formData, tenantId);
-      // If backend returned a body with message, show it
       const data = resp?.data;
-      setSuccess(data?.message ?? 'Cadastro enviado! Aguarde a aprovaÃ§Ã£o do administrador.');
+      setSuccess(data?.message ?? 'Cadastro enviado! Aguarde a aprovação do administrador.');
       setForm({ ...initialForm, tenant_id: tenantId });
       setAvatarPreview(null);
       setTermoLido(false);
     } catch (err: any) {
       console.error("Erro ao enviar cadastro (postWithFallback):", err);
-
-      // network / CORS detection
       if (err?.message && (err.message.includes('Network Error') || err.code === 'ERR_NETWORK')) {
-        setError('Erro de rede ou CORS: verifique se o backend estÃ¡ rodando e permitindo requisiÃ§Ãµes deste frontend (CORS). Confira o console do backend tambÃ©m.');
-        return;
-      }
-
-      if (err?.message && err.message.includes('Nenhum endpoint')) {
+        setError('Erro de rede ou CORS: verifique se o backend está rodando e permitindo requisições deste frontend (CORS). Confira o console do backend também.');
+      } else if (err?.message && err.message.includes('Nenhum endpoint')) {
         setError(err.message);
-        return;
-      }
-
-      if (err?.response) {
-        console.groupCollapsed(`Server responded ${err.response.status}`);
-        console.log('headers:', err.response.headers);
-        console.log('data:', err.response.data);
-        console.groupEnd();
-
+      } else if (err?.response) {
         const data = err.response.data;
         if (!data) {
           setError(`Erro ${err.response.status} do servidor`);
-          return;
-        }
-        if (Array.isArray(data.detail)) {
+        } else if (Array.isArray(data.detail)) {
           const msg = data.detail.map((d: any) => {
             if (typeof d === 'string') return d;
             if (d?.loc && d?.msg) return `${d.loc.join('.')}: ${d.msg}`;
             return JSON.stringify(d);
           }).join(' ; ');
           setError(msg);
-          return;
-        }
-        if (typeof data.detail === 'string') {
+        } else if (typeof data.detail === 'string') {
           setError(data.detail);
-          return;
-        }
-        if (data.message) {
+        } else if (data.message) {
           setError(String(data.message));
-          return;
+        } else {
+          setError(JSON.stringify(data));
         }
-        setError(JSON.stringify(data));
-        return;
+      } else {
+        setError('Erro ao enviar cadastro. Veja o console do navegador e do backend para detalhes.');
       }
-
-      setError('Erro ao enviar cadastro. Veja o console do navegador e do backend para detalhes.');
+    } finally {
+      setSubmitting(false);
     }
   }
 
   const tenantMissing = !tenantId || tenantId.trim() === "";
 
+  // initials fallback for Avatar when no logo is available
+  const initials = (form.full_name || form.nome || form.username || "U")
+    .split(' ')
+    .map(s => s ? s[0].toUpperCase() : '')
+    .slice(0, 2)
+    .join('');
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f5f6fa', display: 'flex', alignItems: 'center' }}>
       <Paper elevation={4} sx={{ p: { xs: 2, md: 4 }, maxWidth: 520, mx: 'auto', borderRadius: 5 }}>
         <Stack direction="column" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-          <Avatar sx={{ width: 64, height: 64, mb: 1, bgcolor: "#1976d2", fontWeight: "bold" }}>S</Avatar>
-          <Typography variant="h4" fontWeight="bold" color="primary">StockWise</Typography>
+          {/* Logo: tenta carregar arquivo estático backend -> fallback para global logo -> fallback para Avatar */}
+          {avatarPreview ? (
+            <Avatar src={avatarPreview} sx={{ width: 120, height: 120, mb: 1 }} />
+          ) : (
+            <>
+              {!imageFailed ? (
+                <img
+                  src={logoSrc}
+                  alt="Logo"
+                  style={{ width: 300  , height: 120, objectFit: "contain", borderRadius: 12 }}
+                  onError={(e) => {
+                    const img = e.target as HTMLImageElement;
+                    if (logoSrc !== defaultLogoUrl) {
+                      // try global logo next
+                      setLogoSrc(defaultLogoUrl);
+                      img.src = defaultLogoUrl;
+                    } else {
+                      // no logo available -> show Avatar fallback
+                      setImageFailed(true);
+                    }
+                  }}
+                />
+              ) : (
+                <Avatar sx={{ width: 120, height: 120, mb: 1, bgcolor: "#e3e3e3", fontSize: 40 }}>
+                  {initials}
+                </Avatar>
+              )}
+            </>
+          )}
         </Stack>
 
         <Typography color="text.secondary" align="center" gutterBottom>
-          Preencha todos os campos obrigatÃ³rios para realizar seu cadastro.
+          Preencha todos os campos obrigatórios para realizar seu cadastro.
         </Typography>
 
         {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {tenantMissing && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            Registro disponÃ­vel somente via link institucional. Abra o link fornecido pela sua instituiÃ§Ã£o. Se vocÃª recebeu um cÃ³digo, peÃ§a ao administrador o link completo.
+            Registro disponível somente via link institucional. Abra o link fornecido pela sua instituição. Se você recebeu um código, peça ao administrador o link completo.
           </Alert>
         )}
-
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
           <Stack direction="column" alignItems="center" spacing={1} sx={{ mb: 2 }}>
@@ -306,7 +481,7 @@ export default function PublicRegisterPage() {
               startIcon={<PhotoCamera />}
               sx={{ borderRadius: 3, fontWeight: 'bold' }}
             >
-              Enviar Foto (obrigatÃ³rio)
+              Enviar Foto (obrigatório)
               <input
                 type="file"
                 accept="image/*"
@@ -325,12 +500,12 @@ export default function PublicRegisterPage() {
           <TextField label="CPF" name="cpf" value={form.cpf} onChange={handleChange} fullWidth margin="normal" required />
           <TextField label="Telefone" name="phone" value={form.phone} onChange={handleChange} fullWidth margin="normal" required />
           <TextField label="Departamento" name="department" value={form.department} onChange={handleChange} fullWidth margin="normal" required />
-          <TextField label="InstituiÃ§Ã£o" name="institution" value={form.institution} onChange={handleChange} fullWidth margin="normal" required />
+          <TextField label="Instituição" name="institution" value={form.institution} onChange={handleChange} fullWidth margin="normal" required />
           <TextField label="Data de Nascimento" name="birth_date" type="date" value={form.birth_date} onChange={handleChange} fullWidth margin="normal" InputLabelProps={{ shrink: true }} required />
-          <TextField label="ObservaÃ§Ãµes" name="notes" value={form.notes} onChange={handleChange} fullWidth margin="normal" />
-          <TextField label="EndereÃ§o" name="address" value={form.address} onChange={handleChange} fullWidth margin="normal" required />
+          <TextField label="Observações" name="notes" value={form.notes || ""} onChange={handleChange} fullWidth margin="normal" helperText="Observações (opcional)"/>
+          <TextField label="Endereço" name="address" value={form.address} onChange={handleChange} fullWidth margin="normal" required />
           <TextField
-            label="FunÃ§Ã£o"
+            label="Função"
             name="role"
             select
             value={form.role}
@@ -340,14 +515,35 @@ export default function PublicRegisterPage() {
             required
           >
             {ROLES.map(r => (
-              <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>
+              <MenuItem key={String(r.value)} value={r.value}>{r.label}</MenuItem>
             ))}
           </TextField>
+
+          {/* Mostrar CREF apenas quando role exigir */}
+          {rolesRequiringCref.has(form.role) && (
+            <TextField
+              label="CREF (registro profissional)"
+              name="cref"
+              value={form.cref || ""}
+              onChange={handleChange}
+              fullWidth
+              margin="normal"
+              required
+              helperText="Informe o número do CREF (ex.: 12345-G/UF)"
+            />
+          )}
+
           <TextField label="Especialidade" name="specialty" value={form.specialty} onChange={handleChange} fullWidth margin="normal" required />
+
+          {/* Banking fields */}
+          <TextField label="Nome do Banco" name="bank_name" value={form.bank_name || ""} onChange={handleChange} fullWidth margin="normal" helperText="Nome do banco (opcional)" />
+          <TextField label="PIX" name="pix" value={form.pix || ""} onChange={handleChange} fullWidth margin="normal" helperText="Chave PIX (opcional)" />
+          <TextField label="Conta corrente" name="bank_account" value={form.bank_account || ""} onChange={handleChange} fullWidth margin="normal" helperText="Número da conta (opcional)" />
+          <TextField label="Agência" name="agency" value={form.agency || ""} onChange={handleChange} fullWidth margin="normal" helperText="Agência (opcional)" />
 
           <Box sx={{ mt: 2 }}>
             <Button variant="text" color="primary" onClick={handleAbrirTermo}>
-              Ler Termo de Uso e SeguranÃ§a
+              Ler Termo de Uso e Segurança
             </Button>
             <FormControlLabel
               control={
@@ -358,10 +554,10 @@ export default function PublicRegisterPage() {
                   disabled={!termoLido}
                 />
               }
-              label="Li e aceito o Termo de Uso e SeguranÃ§a da Plataforma StockWise"
+              label="Li e aceito o Termo de Uso e Segurança da Plataforma TAF ON"
             />
             <Dialog open={termoOpen} onClose={handleFecharTermo} maxWidth="md" fullWidth>
-              <DialogTitle>Termo de Uso e SeguranÃ§a da Plataforma StockWise</DialogTitle>
+              <DialogTitle>Termo de Uso e Segurança da Plataforma TAF ON</DialogTitle>
               <DialogContent dividers>
                 <Typography variant="body2" align="left" sx={{ whiteSpace: "pre-line" }}>
                   {TERM_TEXT}
@@ -381,13 +577,13 @@ export default function PublicRegisterPage() {
             color="primary"
             fullWidth
             sx={{ mt: 3, fontWeight: 'bold', borderRadius: 3 }}
-            disabled={tenantMissing}
+            disabled={tenantMissing || submitting}
+            startIcon={submitting ? <CircularProgress size={18} /> : undefined}
           >
-            Cadastrar
+            {submitting ? 'Enviando...' : 'Cadastrar'}
           </Button>
         </Box>
       </Paper>
     </Box>
   );
 }
-
