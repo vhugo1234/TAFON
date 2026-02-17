@@ -14,9 +14,9 @@ export default function AppearanceTab() {
         <InputLabel id="theme-label">Tema</InputLabel>
         <Select
           labelId="theme-label"
-          value={theme ?? "light"}                       // <-- garantir string padrão
+          value={theme ?? "light"}                       // <-- garantir string padrÃ£o
           label="Tema"
-          onChange={e => setTheme(String((e.target as HTMLSelectElement).value))} // <-- força string
+          onChange={e => setTheme(String((e.target as HTMLSelectElement).value))} // <-- forÃ§a string
         >
           <MenuItem value="light">Claro</MenuItem>
           <MenuItem value="dark">Escuro</MenuItem>
@@ -31,3 +31,4 @@ export default function AppearanceTab() {
     </Box>
   );
 }
+

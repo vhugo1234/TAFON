@@ -1,11 +1,15 @@
 from logging.config import fileConfig
 import os
+import sys
 import urllib.parse
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+
+# Adicionar o diretório app ao path para importar modelos
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -17,13 +21,15 @@ if not db_url:
     db_user = os.getenv("DB_USER", "tafon_user")
     db_pass = os.getenv("DB_PASSWORD", "tafon_pass")
     db_name = os.getenv("DB_NAME", "tafon_central_db")
+    db_host = os.getenv("DB_HOST", "db")
+    db_port = os.getenv("DB_PORT", "5432")
 
     # URL-encode user and password to avoid issues with special characters
     user_enc = urllib.parse.quote_plus(db_user)
     pass_enc = urllib.parse.quote_plus(db_pass)
 
     # Use the same scheme as the backend (psycopg2 driver)
-    db_url = f"postgresql+psycopg2://{user_enc}:{pass_enc}@db:5432/{db_name}"
+    db_url = f"postgresql+psycopg2://{user_enc}:{pass_enc}@{db_host}:{db_port}/{db_name}"
 
 # Override the sqlalchemy.url from alembic.ini with the resolved value
 config.set_main_option("sqlalchemy.url", db_url)
@@ -33,11 +39,14 @@ config.set_main_option("sqlalchemy.url", db_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None
+# Import all models from public schema (central) for autogenerate support
+try:
+    from app.db.models.public import Base as PublicBase
+    # Set target_metadata to PublicBase for central tables
+    target_metadata = PublicBase.metadata
+except Exception as e:
+    print(f"Warning: Could not import models for autogenerate: {e}")
+    target_metadata = None
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

@@ -13,6 +13,11 @@ import json
 import re
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
+
+# simples validação de nome de schema: começa com letra/underscore, contém letras/dígitos/underscore
+_SCHEMA_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 
 class Token(BaseModel):
     access_token: str
@@ -26,6 +31,7 @@ class Token(BaseModel):
     role: str | None = None
     is_admin: bool | None = None
     email: str | None = None
+
 
 class LoginRequest(BaseModel):
     email: str
@@ -47,7 +53,7 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
     username = None
     password = None
 
-    # Form data (OAuth2PasswordRequestForm)
+    # Form data (OAuth2PasswordRequestForm) or multipart
     if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
         form = await request.form()
         username = form.get("username")
@@ -57,14 +63,11 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
         try:
             body = await request.json()
         except Exception:
-            # Se o JSON for inválido, retornar 400 em vez de 500
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid JSON body",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body")
         username = body.get("email") or body.get("username")
         password = body.get("password")
     else:
+        # fallback: try parse json
         try:
             body = await request.json()
             username = body.get("email") or body.get("username")
@@ -72,61 +75,105 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Requisição deve ser form-urlencoded ou application/json",
+                detail="Requisição deve ser form-urlencoded ou application/json"
             )
 
     if not username or not password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Campos de autenticação ausentes (username/email e password).",
+            detail="Campos de autenticação ausentes (username/email e password)."
         )
 
-    # 1. Busca no schema CENTRAL (superadmin)
-    user = db.query(UserCentral).filter(UserCentral.email == username).first()
-    nome_usuario = getattr(user, "nome", None) or getattr(user, "username", None) or (user.email if user else None)
-    if user and verify_password(password, user.hashed_password):
-        print(f"[LOGIN CENTRAL SUCESSO] Usuário: {nome_usuario}")
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        empresa = getattr(user.tenant, "nome_empresa", "Central") if getattr(user, "tenant", None) else "Central"
-        logoUrl = getattr(user.tenant, "logo_url", "/static/logos/logo_almo.png") if getattr(user, "tenant", None) else "/static/logos/logo_almo.png"
-        schema_name = getattr(user.tenant, "schema_name", None) if getattr(user, "tenant", None) else None
-        access_token = create_access_token(
-            data={
-                "sub": user.email,
-                "tenant_id": user.tenant_id,
-                "tenant_user_id": user.tenant_user_id,
-                "is_superuser": user.is_superuser,
-                "nome": nome_usuario,
-                "role": "SUPERUSER",
-                "is_admin": True,
+    # Tenta garantir sessão limpa antes de usar
+    try:
+        db.rollback()
+    except Exception:
+        pass
+
+    # 1) Autenticar no CENTRAL (users_central no schema public)
+    try:
+        # Garantir que estamos no schema public
+        db.execute(text("SET search_path TO public"))
+        user = db.query(UserCentral).filter(UserCentral.email == username).first()
+    except Exception as e:
+        logger.error(f"Erro ao buscar usuário central: {e}")
+        traceback.print_exc()
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        user = None
+
+    if user:
+        stored_pw = getattr(user, "hashed_password", None)
+        if stored_pw and verify_password(password, stored_pw):
+            access_token_expires = timedelta(minutes=int(getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 60)))
+            empresa = "Central"
+            logoUrl = "/static/logos/logo_almo.png"
+            schema_name = None
+            try:
+                tenant = getattr(user, "tenant", None)
+                if tenant:
+                    empresa = getattr(tenant, "nome_empresa", empresa)
+                    logoUrl = getattr(tenant, "logo_url", logoUrl)
+                    schema_name = getattr(tenant, "schema_name", None)
+            except Exception:
+                traceback.print_exc()
+
+            access_token = create_access_token(
+                data={
+                    "sub": user.email,
+                    "tenant_id": getattr(user, "tenant_id", None),
+                    "schema_name": schema_name,
+                    "is_superuser": getattr(user, "is_superuser", False),
+                    "nome": getattr(user, "nome", user.email),
+                    "role": "SUPERUSER",
+                    "is_admin": True,
+                    "empresa": empresa,
+                    "logoUrl": logoUrl,
+                    "email": user.email,
+                },
+                expires_delta=access_token_expires,
+            )
+            return {
+                "access_token": access_token,
+                "token_type": "bearer",
+                "tenant_id": getattr(user, "tenant_id", None),
+                "schema_name": schema_name,
+                "is_superuser": getattr(user, "is_superuser", False),
                 "empresa": empresa,
                 "logoUrl": logoUrl,
+                "nome": getattr(user, "nome", user.email),
+                "role": "SUPERUSER",
+                "is_admin": True,
                 "email": user.email,
-            },
-            expires_delta=access_token_expires
-        )
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "tenant_id": user.tenant_id,
-            "schema_name": schema_name,
-            "is_superuser": user.is_superuser,
-            "empresa": empresa,
-            "logoUrl": logoUrl,
-            "nome": nome_usuario,
-            "role": "SUPERUSER",
-            "is_admin": True,
-            "email": user.email,
-        }
+            }
 
-    # 2. Procura em todos os schemas de tenants (clientes)
-    schemas = [
-        row[0] for row in db.execute(
-            text("SELECT schema_name FROM information_schema.schemata "
-                "WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'public')")
-        )
-    ]
-    for schema_name in schemas:
+    # 2) Autentica em tenants existentes (consulta explicitamente por schema)
+    try:
+        # Garantir que estamos no schema public antes de listar schemas
+        db.execute(text("SET search_path TO public"))
+        rows = db.execute(text(
+            "SELECT schema_name FROM information_schema.schemata "
+            "WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'public', 'pg_toast') "
+            "AND schema_name NOT LIKE 'pg_%'"
+        )).fetchall()
+        schemas = [r[0] for r in rows]
+        logger.info(f"Schemas de tenants encontrados: {schemas}")
+    except Exception as e:
+        logger.error(f"Erro ao listar schemas: {e}")
+        traceback.print_exc()
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        schemas = []
+
+    for schema in schemas:
+        if not _SCHEMA_RE.match(schema):
+            logger.warning(f"Schema ignorado por nome inválido: {schema}")
+            continue
+        
         try:
             # SECURITY: Validate schema name before using in SQL
             if not validate_schema_name(schema_name):
@@ -159,33 +206,35 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
                     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
                     access_token = create_access_token(
                         data={
-                            "sub": user_tenant.email,
-                            "schema_name": schema_name,
-                            "user_id": user_tenant.id,
-                            "nome": user_tenant.nome,
-                            "role": user_tenant.role.value,
-                            "is_admin": user_tenant.is_admin,
+                            "sub": email_val,
+                            "schema_name": schema,
+                            "user_id": user_tenant_id,
+                            "nome": nome,
+                            "role": role_val or str(role_id) if role_id else "user",
+                            "is_admin": bool(is_admin),
                             "empresa": empresa,
                             "logoUrl": logoUrl,
                             "is_superuser": False,
-                            "email": user_tenant.email
+                            "email": email_val
                         },
                         expires_delta=access_token_expires
                     )
-                    print(f"[LOGIN TENANT SUCESSO] Usuário: {user_tenant.email} (schema {schema_name}), empresa={empresa}, logoUrl={logoUrl}")
                     return {
                         "access_token": access_token,
                         "token_type": "bearer",
                         "tenant_id": None,
-                        "schema_name": schema_name,
+                        "schema_name": schema,
                         "is_superuser": False,
                         "empresa": empresa,
                         "logoUrl": logoUrl,
-                        "nome": user_tenant.nome,
-                        "role": user_tenant.role.value,
-                        "is_admin": user_tenant.is_admin,
-                        "email": user_tenant.email
+                        "nome": nome,
+                        "role": role_val or str(role_id) if role_id else "user",
+                        "is_admin": bool(is_admin),
+                        "email": email_val
                     }
+                else:
+                    logger.warning(f"Senha incorreta para {email_val} no schema {schema}")
+                    
         except Exception as e:
             db.rollback()
             print(f"[ERRO ao logar no schema {schema_name}] {e}")

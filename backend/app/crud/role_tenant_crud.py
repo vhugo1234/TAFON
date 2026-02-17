@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from app.db.models.role_tenant import RoleTenant
-from app.api.schemas.role_tenant import RoleTenantCreate, RoleTenantUpdate
+# Preferir importar schemas do pacote canônico (app.schemas)
+from app.schemas.role_tenant import RoleTenantCreate, RoleTenantUpdate
 
 def create_role(db: Session, obj_in: RoleTenantCreate):
     role = RoleTenant(**obj_in.dict())
