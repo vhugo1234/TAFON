@@ -42,6 +42,13 @@ COPY --chown=appuser:appuser . /app
 
 USER appuser
 
+# TEMPORARY FIX: Create static directories and set ownership to avoid permission issues
+RUN mkdir -p /app/static/imagens /app/static/logos /app/uploads \
+    && useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
 EXPOSE 8000
 
 # Comando padrão — docker-compose pode sobrescrever para rodar migrações antes

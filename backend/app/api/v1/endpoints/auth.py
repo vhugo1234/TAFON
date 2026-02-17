@@ -2,14 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.db.connection import get_db, engine
-from app.db.models.public import UserCentral
+from app.db.connection import get_db
+# TEMPORARY FIX: Explicit imports from specific model modules to avoid ambiguity
+from app.db.models.public import UserCentral, Tenant
+from app.db.models.tenant import UserTenant
 from app.core.security import create_access_token, verify_password
 from app.core.config import settings
 from datetime import timedelta
-import traceback
+import json
 import re
-import logging
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -35,6 +36,14 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+def validate_schema_name(schema_name: str) -> bool:
+    """
+    SECURITY: Validate schema name to prevent SQL injection.
+    Only allow alphanumeric characters, underscores, and hyphens.
+    """
+    return bool(re.match(r'^[a-zA-Z0-9_-]+$', schema_name))
 
 
 @router.post("/token", response_model=Token)
@@ -166,61 +175,35 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
             continue
         
         try:
-            logger.info(f"Tentando autenticar no schema: {schema}")
+            # SECURITY: Validate schema name before using in SQL
+            if not validate_schema_name(schema_name):
+                print(f"[SECURITY] Invalid schema name skipped: {schema_name}")
+                continue
             
-            # Criar uma nova conexão para evitar problemas de transação
-            with engine.connect() as conn:
-                # Garantir search_path correto
-                conn.execute(text("SET search_path TO public"))
-                
-                # Verificar se a tabela user_tenant existe neste schema
-                check_table = conn.execute(text(
-                    "SELECT EXISTS (SELECT FROM information_schema.tables "
-                    "WHERE table_schema = :schema AND table_name = 'user_tenant')"
-                ), {"schema": schema}).scalar()
-                
-                if not check_table:
-                    logger.warning(f"Tabela user_tenant não existe no schema {schema}")
-                    continue
-                
-                # Buscar usuário no schema do tenant usando query parametrizada
-                # CORREÇÃO CRÍTICA: usar aspas duplas no schema e evitar interpolação direta
-                query = text(
-                    'SELECT id, nome, email, hashed_password, is_active, is_admin, role, role_id '
-                    'FROM "' + schema + '".user_tenant WHERE email = :email LIMIT 1'
-                )
-                
-                row = conn.execute(query, {"email": username}).fetchone()
-                
-                if not row:
-                    logger.info(f"Usuário não encontrado no schema {schema}")
-                    continue
+            print(f"Tentando login no schema: {schema_name}")
+            # SECURITY: Use validated schema name with text() to prevent SQL injection
+            db.execute(text(f'SET search_path TO "{schema_name}"'))
+            user_tenant = db.query(UserTenant).filter(UserTenant.email == username).first()
+            if user_tenant:
+                print(f">>> Encontrado usuário em {schema_name}: {user_tenant.email} (admin? {user_tenant.is_admin})")
+                senha_ok = verify_password(password, user_tenant.hashed_password)
+                print("Senha válida?", senha_ok)
+                if senha_ok:
+                    # --- PATCH COMEÇA AQUI ---
+                    # Após autenticar o usuário, troque search_path para public ANTES de buscar nome/logo!
+                    db.execute(text("SET search_path TO public"))  # Troca para schema central
 
-                # row indices based on select order
-                user_tenant_id, nome, email_val, hashed_pw, is_active, is_admin, role_val, role_id = row
+                    result = db.execute(
+                        text("SELECT nome_empresa, logo_url FROM tenants WHERE schema_name = :schema"),
+                        {"schema": schema_name}
+                    ).first()
+                    empresa = result[0] if result and result[0] else "Empresa"
+                    logoUrl = result[1] if result and result[1] else "/static/logos/logo_almo.png"
+                    print(f"[TOKEN PAYLOAD] empresa={empresa}, logoUrl={logoUrl}")
 
-                if not hashed_pw:
-                    logger.warning(f"Usuário {email_val} no schema {schema} não tem senha")
-                    continue
-                    
-                # if user inactive skip
-                if is_active is False:
-                    logger.warning(f"Usuário {email_val} no schema {schema} está inativo")
-                    continue
-                    
-                if verify_password(password, hashed_pw):
-                    logger.info(f"Autenticação bem-sucedida para {email_val} no schema {schema}")
-                    
-                    # read tenant info from public.tenants
-                    info = conn.execute(
-                        text("SELECT nome_empresa, logo_url FROM public.tenants WHERE schema_name = :schema"),
-                        {"schema": schema}
-                    ).fetchone()
-                    
-                    empresa = info[0] if info and info[0] else "Empresa"
-                    logoUrl = info[1] if info and info[1] else "/static/logos/logo_almo.png"
+                    # --- PATCH TERMINA AQUI ---
 
-                    access_token_expires = timedelta(minutes=int(getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 60)))
+                    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
                     access_token = create_access_token(
                         data={
                             "sub": email_val,
@@ -253,10 +236,12 @@ async def login_for_access_token(request: Request, db: Session = Depends(get_db)
                     logger.warning(f"Senha incorreta para {email_val} no schema {schema}")
                     
         except Exception as e:
-            logger.error(f"Erro ao autenticar no schema {schema}: {e}")
-            traceback.print_exc()
-            # continue para o próximo schema
-            continue
+            db.rollback()
+            print(f"[ERRO ao logar no schema {schema_name}] {e}")
+            # Restore search_path on error
+            db.execute(text("SET search_path TO public"))
+            pass
+    db.execute(text("SET search_path TO public"))
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
